@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    直播页呼出的频道选择浮层。
+    高度由代码按屏幕比例（约 78%/62%）设定，列表用 weight 填满，
+    保证频道多时能滚动、频道少时也不留大片空白。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/bg_dialog_dark"
+    android:paddingStart="22dp"
+    android:paddingEnd="22dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="18dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/picker_title"
+            android:textSize="@dimen/section_title"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <TextView
+            android:id="@+id/tvPickerGroup"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:layout_marginStart="10dp"
+            android:text=""
+            android:textSize="@dimen/card_meta"
+            android:textColor="@color/text_secondary"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="10dp"
+        android:text="@string/picker_hint"
+        android:textSize="12sp"
+        android:textColor="@color/text_hint" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvPicker"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="4dp" />
+</LinearLayout>

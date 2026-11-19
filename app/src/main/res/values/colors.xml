@@ -1,35 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 克制的深色基调：近黑背景 + 中性石墨层级，不用高饱和渐变 -->
+    <!--
+        中性石墨基调。
+        旧版用近黑（#08090B）+ 高对比纯白文字：电视/盒子在大屏上长时间观看时，
+        亮画面与近黑背景的强反差最容易让眼睛疲劳（尤其在暗环境里）。
+        这里整体抬亮一档到「深灰」区间 —— 仍然是深色 UI，但明暗差更柔和，久看不刺眼。
+    -->
     <color name="black">#FF000000</color>
-    <color name="background">#FF08090B</color>
-    <color name="background_2">#FF0E1014</color>
-    <color name="surface">#FF17191E</color>
-    <color name="surface_2">#FF21242B</color>
-    <color name="card">#FF17191E</color>
-    <color name="card_focus">#FF2A2E36</color>
+    <color name="background">#FF171A20</color>
+    <color name="background_2">#FF1C2027</color>
+    <color name="surface">#FF232832</color>
+    <color name="surface_2">#FF2C323D</color>
+    <color name="card">#FF212630</color>
+    <color name="card_focus">#FF333A47</color>
 
     <!-- 单一强调色：柔和的 iOS 蓝，仅用于焦点、选中和可点击元素 -->
     <color name="brand_cyan">#FF0A84FF</color>
     <color name="brand_blue">#FF0A84FF</color>
-    <color name="brand_purple">#FF3A3D45</color>
-    <color name="primary">#FF4DA3FF</color>
+    <color name="brand_purple">#FF3F444F</color>
+    <color name="primary">#FF5AA9FF</color>
     <color name="primary_dark">#FF0A84FF</color>
-    <color name="accent">#FF7ABBFF</color>
+    <color name="accent">#FF8CC4FF</color>
 
-    <!-- 文本：接近 Apple 深色模式的三级灰度 -->
-    <color name="text_primary">#FFF5F5F7</color>
-    <color name="text_secondary">#FF98989F</color>
-    <color name="text_hint">#FF6E6E73</color>
+    <!-- 文本：三级灰度。最亮一档略降，避免纯白在大屏上「扎眼」 -->
+    <color name="text_primary">#FFEDEEF1</color>
+    <color name="text_secondary">#FFA9ADB6</color>
+    <color name="text_hint">#FF82868F</color>
 
     <!-- 状态色沿用 iOS 系统色 -->
-    <color name="green">#FF30D158</color>
+    <color name="green">#FF32D74B</color>
     <color name="yellow">#FFFFD60A</color>
-    <color name="red">#FFFF453A</color>
+    <color name="red">#FFFF6B5E</color>
 
     <!-- 分隔线与遮罩 -->
     <color name="scrim">#CC000000</color>
-    <color name="divider">#14FFFFFF</color>
-    <color name="border">#1AFFFFFF</color>
-    <color name="border_strong">#33FFFFFF</color>
+    <color name="divider">#1FFFFFFF</color>
+    <color name="border">#24FFFFFF</color>
+    <color name="border_strong">#3DFFFFFF</color>
 </resources>

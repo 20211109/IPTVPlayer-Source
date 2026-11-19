@@ -14,7 +14,7 @@
         android:orientation="vertical"
         android:paddingStart="@dimen/page_padding"
         android:paddingEnd="@dimen/page_padding"
-        android:paddingTop="24dp">
+        android:paddingTop="@dimen/page_padding_top">
 
         <!-- 顶部：大标题 + 极简强调条 -->
         <LinearLayout
@@ -22,7 +22,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="@dimen/header_gap">
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -72,7 +72,7 @@
             android:focusable="true"
             android:clickable="true"
             android:stateListAnimator="@animator/focus_scale"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="@dimen/hero_gap">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -121,7 +121,7 @@
                         android:id="@+id/tvHeroTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/hero_title_gap"
                         android:text="@string/hero_hint"
                         android:textSize="@dimen/hero_title"
                         android:textStyle="bold"
@@ -133,7 +133,7 @@
                         android:id="@+id/tvHeroSub"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="@dimen/hero_sub_gap"
                         android:text="@string/hero_playing"
                         android:textSize="@dimen/hero_sub"
                         android:textColor="@color/text_secondary"
@@ -146,7 +146,7 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="10dp">
+                        android:layout_marginTop="@dimen/hero_epg_gap">
 
                         <ImageView
                             android:layout_width="14dp"
@@ -172,7 +172,7 @@
                         android:id="@+id/tvHeroEpgNext"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
+                        android:layout_marginTop="@dimen/hero_next_gap"
                         android:text=""
                         android:textSize="@dimen/epg_next_text"
                         android:textColor="@color/text_secondary"
@@ -189,7 +189,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="@dimen/section_gap">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -213,44 +213,45 @@
                 android:layout_height="1dp"
                 android:layout_weight="1" />
 
-            <!-- 三个次级入口字号/样式完全一致：直播源 → 关于 → 设置 -->
+            <!-- 三个次级入口字号/样式完全一致：直播源 → 关于 → 设置
+                 （大屏下加大一档，遥控器上更容易看见与点中） -->
             <Button
                 android:id="@+id/btnConfig"
                 style="@style/GhostButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:minWidth="0dp"
-                android:minHeight="34dp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:minHeight="@dimen/top_button_height"
+                android:paddingStart="@dimen/top_button_padding"
+                android:paddingEnd="@dimen/top_button_padding"
                 android:text="@string/btn_config"
-                android:textSize="11sp" />
+                android:textSize="@dimen/top_button_text" />
 
             <Button
                 android:id="@+id/btnAbout"
                 style="@style/GhostButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="@dimen/top_button_gap"
                 android:minWidth="0dp"
-                android:minHeight="34dp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:minHeight="@dimen/top_button_height"
+                android:paddingStart="@dimen/top_button_padding"
+                android:paddingEnd="@dimen/top_button_padding"
                 android:text="@string/about_entry"
-                android:textSize="11sp" />
+                android:textSize="@dimen/top_button_text" />
 
             <Button
                 android:id="@+id/btnSettings"
                 style="@style/GhostButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="@dimen/top_button_gap"
                 android:minWidth="0dp"
-                android:minHeight="34dp"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
+                android:minHeight="@dimen/top_button_height"
+                android:paddingStart="@dimen/top_button_padding"
+                android:paddingEnd="@dimen/top_button_padding"
                 android:text="@string/settings"
-                android:textSize="11sp" />
+                android:textSize="@dimen/top_button_text" />
         </LinearLayout>
 
         <HorizontalScrollView
@@ -258,7 +259,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:scrollbars="none"
-            android:layout_marginBottom="14dp">
+            android:layout_marginBottom="@dimen/chips_gap">
 
             <LinearLayout
                 android:id="@+id/groupContainer"

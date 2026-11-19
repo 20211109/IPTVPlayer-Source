@@ -75,6 +75,15 @@ class MainActivity : AppCompatActivity() {
     private var heroTouchY = 0f
     /** 直播页上/下滑或遥控上/下键换台的防抖时间戳 */
     private var lastLiveSwitchMs = 0L
+    /** 直播页长按确认键呼出的频道选择浮层 */
+    private var pickerDialog: ChannelPickerDialog? = null
+    /** 长按确认键的定时器：到点即弹频道表 */
+    private val pickerLongPressRunnable = Runnable {
+        pickerLongPressFired = true
+        showChannelPicker()
+    }
+    /** 本次长按是否已经弹出过频道表（用于吃掉随后的抬起事件，避免重复触发点击） */
+    private var pickerLongPressFired = false
     /** 更新下载任务：进度框点「取消」时中断 */
     private var updateJob: kotlinx.coroutines.Job? = null
     /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
@@ -266,8 +275,41 @@ class MainActivity : AppCompatActivity() {
 
         rebuildChannelsFromSources()
 
+        // 保证「频道网格至少露出三行」：大屏尺寸已在 dimens 里压缩过，
+        // 这里再按真实可视高度兜一次底（不同电视窗口高度、系统字体缩放都会吃掉空间）
+        ensureThreeRowsVisible()
+
         // 启动时静默检查更新（无新版本或网络不通时无任何打扰）
         checkForUpdate()
+    }
+
+    /** 焦点卡原始高度：被压缩过之后要能还原（例如旋转屏幕、字体缩放变化后再量一次） */
+    private var heroBaseHeight = 0
+
+    /**
+     * 三行兜底：量一次频道网格的可视高度，装不下三行就把焦点卡按差额压矮
+     * （最多压到一张频道卡的高度）。只压不涨，所以不会把布局越改越奇怪。
+     */
+    private fun ensureThreeRowsVisible() {
+        val lp = heroCard.layoutParams ?: return
+        if (heroBaseHeight == 0) heroBaseHeight = lp.height
+        if (lp.height != heroBaseHeight) {
+            lp.height = heroBaseHeight
+            heroCard.layoutParams = lp
+        }
+        recyclerView.post {
+            if (pageList.visibility != View.VISIBLE) return@post
+            val cardH = resources.getDimensionPixelSize(R.dimen.card_height)
+            val margin = resources.getDimensionPixelSize(R.dimen.card_margin)
+            val rowH = cardH + margin * 2
+            val need = rowH * 3 - recyclerView.height
+            if (need <= 0) return@post
+            val cur = heroCard.layoutParams.height
+            val newH = (cur - need).coerceAtLeast(cardH)
+            if (newH < cur) {
+                heroCard.layoutParams = heroCard.layoutParams.apply { height = newH }
+            }
+        }
     }
 
     /**
@@ -277,6 +319,27 @@ class MainActivity : AppCompatActivity() {
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (pagePlayer.visibility != View.VISIBLE || sourceDialog?.isShowing == true) {
+            return super.dispatchKeyEvent(event)
+        }
+        // 长按确认键呼出频道表：按下开始计时，抬起时若已弹出则把这次抬起吃掉，
+        // 避免同一次长按又「点」到顶部栏按钮或播放器控制条。
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+            event.keyCode == KeyEvent.KEYCODE_ENTER ||
+            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+        ) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                    pickerLongPressFired = false
+                    uiHandler.postDelayed(pickerLongPressRunnable, PICKER_LONG_PRESS_MS)
+                }
+                KeyEvent.ACTION_UP -> {
+                    uiHandler.removeCallbacks(pickerLongPressRunnable)
+                    if (pickerLongPressFired) {
+                        pickerLongPressFired = false
+                        return true
+                    }
+                }
+            }
             return super.dispatchKeyEvent(event)
         }
         if (event.action != KeyEvent.ACTION_DOWN) {
@@ -293,6 +356,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** 直播页呼出频道选择表（再长按一次收起）：切换频道不退出播放页，画面直接接上 */
+    private fun showChannelPicker() {
+        pickerDialog?.let { if (it.isShowing) { it.dismiss(); return } }
+        val list = filteredChannels.ifEmpty { channels }
+        if (list.isEmpty()) return
+        val groupLabel = if (currentGroup == "ALL") {
+            getString(R.string.group_all) + " · " + list.size + " " + getString(R.string.channel_count)
+        } else {
+            currentGroup + " · " + list.size + " " + getString(R.string.channel_count)
+        }
+        pickerDialog = ChannelPickerDialog(
+            this, list, currentChannel, groupLabel
+        ) { picked ->
+            if (picked !== currentChannel) openChannel(picked)
+        }.also { it.show() }
     }
 
     /**
@@ -1008,6 +1088,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun closePlayer() {
         uiHandler.removeCallbacks(startWatchdog)
+        uiHandler.removeCallbacks(pickerLongPressRunnable)
+        pickerDialog?.dismiss()
+        pickerDialog = null
         pbLoading.visibility = View.GONE
         playerManager?.player?.stop()
         // 退出播放后恢复正常息屏策略，避免列表页也一直亮着
@@ -1026,6 +1109,8 @@ class MainActivity : AppCompatActivity() {
         }
         showSystemUi()
         applyFilter(currentGroup)
+        // 手机从横屏播放回到竖屏列表，可视高度变了，重新兜一次三行
+        ensureThreeRowsVisible()
     }
 
     /** 长按频道：手动修改台标链接 */
@@ -1155,8 +1240,12 @@ class MainActivity : AppCompatActivity() {
         com.iptv.player.update.InstallResultReceiver.detach(this)
         uiHandler.removeCallbacks(hideStatsRunnable)
         uiHandler.removeCallbacks(startWatchdog)
+        uiHandler.removeCallbacks(pickerLongPressRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
         playerManager?.release()
         playerManager = null
     }
 }
+
+/** 直播页长按确认键呼出频道表的判定时长；短于这个时长仍按普通点按处理 */
+private const val PICKER_LONG_PRESS_MS = 600L

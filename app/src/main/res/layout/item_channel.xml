@@ -3,7 +3,7 @@
     android:id="@+id/card"
     android:layout_width="match_parent"
     android:layout_height="@dimen/card_height"
-    android:layout_margin="6dp"
+    android:layout_margin="@dimen/card_margin"
     android:focusable="true"
     android:clickable="true"
     android:background="@drawable/bg_channel_card"

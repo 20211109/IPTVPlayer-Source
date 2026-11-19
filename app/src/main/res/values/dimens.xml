@@ -2,6 +2,7 @@
 <resources>
     <!-- 默认（手机）尺寸：更克制的留白与更清晰的字号层级 -->
     <dimen name="page_padding">18dp</dimen>
+    <dimen name="page_padding_top">18dp</dimen>
     <dimen name="hero_height">136dp</dimen>
     <dimen name="hero_title">21sp</dimen>
     <dimen name="hero_sub">12sp</dimen>
@@ -18,5 +19,22 @@
     <dimen name="epg_next_text">11sp</dimen>
     <dimen name="hero_logo">68dp</dimen>
     <dimen name="brand_name_text">26sp</dimen>
-    <dimen name="top_button_text">13sp</dimen>
+    <dimen name="top_button_text">14sp</dimen>
+
+    <!-- 纵向节奏：抽成 dimen 后，各屏幕尺寸可独立压缩，
+         保证「频道网格至少露出三行」而不用改布局结构 -->
+    <dimen name="header_gap">18dp</dimen>
+    <dimen name="hero_gap">16dp</dimen>
+    <dimen name="section_gap">12dp</dimen>
+    <dimen name="chips_gap">12dp</dimen>
+    <dimen name="card_margin">6dp</dimen>
+    <dimen name="hero_title_gap">8dp</dimen>
+    <dimen name="hero_sub_gap">4dp</dimen>
+    <dimen name="hero_epg_gap">10dp</dimen>
+    <dimen name="hero_next_gap">3dp</dimen>
+
+    <!-- 直播源 / 关于 / 设置 三个次级入口（加大一档更好点按、更好找） -->
+    <dimen name="top_button_height">40dp</dimen>
+    <dimen name="top_button_padding">16dp</dimen>
+    <dimen name="top_button_gap">8dp</dimen>
 </resources>
