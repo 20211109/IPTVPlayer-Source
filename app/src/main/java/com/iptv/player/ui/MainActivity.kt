@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -72,6 +73,10 @@ class MainActivity : AppCompatActivity() {
     private var lastHeroScrollMs = 0L
     private var heroTouchX = 0f
     private var heroTouchY = 0f
+    /** 直播页上/下滑或遥控上/下键换台的防抖时间戳 */
+    private var lastLiveSwitchMs = 0L
+    /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
+    private lateinit var liveSwipe: GestureDetector
     private val hideStatsRunnable = Runnable {
         if (!playSettings.showStats) statsBar.visibility = View.GONE
     }
@@ -236,10 +241,68 @@ class MainActivity : AppCompatActivity() {
         }
         heroCard.setOnClickListener { focusedChannel?.let { openChannel(it) } }
 
+        // 直播页上下划动换台（触屏设备：手机/带触摸的盒子）。
+        // 不在此拦截事件，PlayerView 控制条、单击显示控制等仍照常工作。
+        // 只在明显的垂直滑动时才换台，避免误触。
+        if (!isTv()) {
+            liveSwipe = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onFling(
+                    e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float
+                ): Boolean {
+                    if (e1 == null) return false
+                    val dx = e2.x - e1.x
+                    val dy = e2.y - e1.y
+                    if (kotlin.math.abs(dy) < 90f || kotlin.math.abs(dy) < kotlin.math.abs(dx) * 1.5f) {
+                        return false
+                    }
+                    // 上滑 → 下一个频道，下滑 → 上一个频道
+                    switchLiveChannel(if (dy < 0) 1 else -1)
+                    return true
+                }
+            })
+        }
+
         rebuildChannelsFromSources()
 
         // 启动时静默检查更新（无新版本或网络不通时无任何打扰）
         checkForUpdate()
+    }
+
+    /**
+     * 遥控上下键换台：只在直播播放页生效，列表页完全交给系统焦点导航。
+     * 同时支持标准方向键(DPAD_UP/DOWN)与部分盒子的频道键(CHANNEL_UP/DOWN)。
+     * 有弹窗打开时不拦截，避免抢走对话框的按键焦点。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (pagePlayer.visibility != View.VISIBLE || sourceDialog?.isShowing == true) {
+            return super.dispatchKeyEvent(event)
+        }
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                switchLiveChannel(-1)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                switchLiveChannel(1)
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * 直播页上下划动换台：在事件分发入口把触摸喂给手势识别器。
+     * 只在播放页可见、且是触屏设备时处理；始终不消费事件（返回 super），
+     * 因此 PlayerView 的单击显示控制条、控制条按钮点击都不受影响。
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (::liveSwipe.isInitialized && pagePlayer.visibility == View.VISIBLE) {
+            liveSwipe.onTouchEvent(event)
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     /** 检查新版本并弹窗提示 */
@@ -514,6 +577,32 @@ class MainActivity : AppCompatActivity() {
             sourceDialog?.refresh()
             toast("已添加「${source.name}」，当前共 ${channels.size} 个频道")
         }
+    }
+
+    /**
+     * 直播页换台：相对「当前正在播放的频道」切到上/下一个。
+     * 只做交互层的事（更新焦点卡、滚动列表），最终仍复用 openChannel，
+     * 播放引擎（播放器实例、缓冲/锁台/看门狗）完全不变，因此不影响播放流畅度。
+     * [delta] = -1 上一个，+1 下一个；到头/到尾不循环，给一次提示。
+     */
+    private fun switchLiveChannel(delta: Int) {
+        if (filteredChannels.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (now - lastLiveSwitchMs < 350L) return  // 防抖：长按/连续滑动不至于瞬间跳过多个台
+        val base = currentChannel ?: focusedChannel
+        val cur = filteredChannels.indexOfFirst { it === base }
+            .let { if (it < 0) 0 else it }
+        val target = (cur + delta).coerceIn(0, filteredChannels.size - 1)
+        if (target == cur) {
+            toast(if (delta > 0) "已是最后一个频道" else "已是第一个频道")
+            lastLiveSwitchMs = now
+            return
+        }
+        lastLiveSwitchMs = now
+        val ch = filteredChannels[target]
+        updateHero(ch)                       // 同步焦点卡，退出播放后列表停在对应频道
+        recyclerView.scrollToPosition(target)
+        openChannel(ch)                      // 复用既有起播流程，不碰播放引擎
     }
 
     /** 打开频道开始播放 */
