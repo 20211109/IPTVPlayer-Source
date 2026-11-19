@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.iptv.player.config.HttpCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -48,8 +49,10 @@ object UpdateManager {
 
     /** 检查更新专用：只拉几百字节，超时短，避免某个节点卡住拖慢整个检查 */
     private val checkClient = HttpCompat.clientBuilder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        // 整次调用兜底：个别节点会一直慢吞吞地吐字节，单靠 readTimeout 拖不住
+        .callTimeout(7, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -91,41 +94,69 @@ object UpdateManager {
         fromGithubApi(context)
     }
 
-    /** 读取 CI 发布的版本清单：{"version":"1.4","notes":"...","apk":"https://..."} */
-    private fun fromVersionJson(context: Context): UpdateInfo? {
-        // 加速器代理的 raw 直链优先（实时、无需科学上网、几百字节秒回）；
-        // jsDelivr 缓存不可控，仅兜底。命中更新的版本即立即返回。
-        for (url in UpdateConfig.VERSION_JSON_URLS) {
-            val body = try {
-                val req = Request.Builder().url(url)
-                    .header("User-Agent", "IPTVPlayer")
-                    .header("Cache-Control", "no-cache")
-                    .build()
-                checkClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) resp.body?.string() else null
-                }
-            } catch (e: Exception) {
-                null
-            }
-            if (body.isNullOrBlank()) continue
-            try {
-                val json = JSONObject(body)
-                val remote = json.optString("version", "")
-                    .removePrefix("v").removePrefix("V").trim()
-                val apk = json.optString("apk", "").trim()
-                if (remote.isBlank() || apk.isBlank()) continue
-                if (!isNewer(remote, localVersionName(context))) continue
-                return UpdateInfo(
-                    remote,
-                    json.optString("notes", "").trim(),
-                    apk,
-                    json.optString("sha256", "").trim()
-                )
-            } catch (e: Exception) {
-                // 该镜像返回的内容不是合法 JSON，换下一个
-            }
+    /**
+     * 读取 CI 发布的版本清单：{"version":"1.4","notes":"...","apk":"https://..."}
+     *
+     * 【为什么并行】串行探测时，只要排在前面的加速器拿到的是 CDN 旧缓存（发版后 5 分钟内常见），
+     * 就得把它整个等到超时再换下一个，6 个节点叠起来动辄十几秒，用户体感就是「检查更新好慢」。
+     * 改为一次并行探测全部镜像、取版本号最高的那份：总耗时≈最慢的那个节点（通常 1~2 秒），
+     * 同时天然免疫单个镜像的缓存滞后（旧缓存版本号更低，直接被淘汰）。
+     */
+    private suspend fun fromVersionJson(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
+        val local = localVersionName(context)
+        val results = UpdateConfig.VERSION_JSON_URLS.map { url ->
+            async { fetchVersionInfo(url, local) }
         }
-        return null
+        var best: UpdateInfo? = null
+        for (info in results.mapNotNull { it.await() }) {
+            val cur = best
+            if (cur == null || compareVersion(info.version, cur.version) > 0) best = info
+        }
+        best
+    }
+
+    /** 拉取单个镜像的版本清单；任何异常都当作「该节点不可用」返回 null */
+    private fun fetchVersionInfo(url: String, local: String): UpdateInfo? {
+        val body = try {
+            val req = Request.Builder().url(url)
+                .header("User-Agent", "IPTVPlayer")
+                .header("Cache-Control", "no-cache")
+                .build()
+            checkClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
+            }
+        } catch (t: Throwable) {
+            null
+        }
+        if (body.isNullOrBlank()) return null
+        return try {
+            val json = JSONObject(body)
+            val remote = json.optString("version", "")
+                .removePrefix("v").removePrefix("V").trim()
+            val apk = json.optString("apk", "").trim()
+            if (remote.isBlank() || apk.isBlank()) return null
+            if (!isNewer(remote, local)) return null
+            UpdateInfo(
+                remote,
+                json.optString("notes", "").trim(),
+                apk,
+                json.optString("sha256", "").trim()
+            )
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    /** 比较两个版本号，返回 a - b 的符号（用于在多镜像结果里取最高版本） */
+    private fun compareVersion(a: String, b: String): Int {
+        val sa = segments(a)
+        val sb = segments(b)
+        for (i in 0 until maxOf(sa.size, sb.size)) {
+            val x = sa.getOrElse(i) { 0 }
+            val y = sb.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
     }
 
     /** GitHub API 兜底（能直连 GitHub 的环境才会走到这里） */
