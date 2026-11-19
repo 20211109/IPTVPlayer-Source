@@ -208,50 +208,65 @@
                 android:textSize="@dimen/card_meta"
                 android:textColor="@color/text_hint" />
 
-            <View
+            <!-- 三个入口放进可横向收缩的容器：
+                 手机上「直播频道 + 频道数 + 三个按钮」总宽会超过屏幕宽度，
+                 旧版会把「设置」整个挤出屏幕外。现在按钮区占满剩余宽度，
+                 放得下就右对齐（跟原设计一致），放不下也能在区域内滚动，
+                 任何屏宽都不会再被裁掉。 -->
+            <HorizontalScrollView
                 android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <!-- 三个次级入口字号/样式完全一致：直播源 → 关于 → 设置
-                 （大屏下加大一档，遥控器上更容易看见与点中） -->
-            <Button
-                android:id="@+id/btnConfig"
-                style="@style/GhostButton"
-                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:minHeight="@dimen/top_button_height"
-                android:paddingStart="@dimen/top_button_padding"
-                android:paddingEnd="@dimen/top_button_padding"
-                android:text="@string/btn_config"
-                android:textSize="@dimen/top_button_text" />
+                android:layout_weight="1"
+                android:fillViewport="true"
+                android:focusable="false"
+                android:overScrollMode="never"
+                android:scrollbars="none">
 
-            <Button
-                android:id="@+id/btnAbout"
-                style="@style/GhostButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/top_button_gap"
-                android:minWidth="0dp"
-                android:minHeight="@dimen/top_button_height"
-                android:paddingStart="@dimen/top_button_padding"
-                android:paddingEnd="@dimen/top_button_padding"
-                android:text="@string/about_entry"
-                android:textSize="@dimen/top_button_text" />
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="end|center_vertical"
+                    android:orientation="horizontal">
 
-            <Button
-                android:id="@+id/btnSettings"
-                style="@style/GhostButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/top_button_gap"
-                android:minWidth="0dp"
-                android:minHeight="@dimen/top_button_height"
-                android:paddingStart="@dimen/top_button_padding"
-                android:paddingEnd="@dimen/top_button_padding"
-                android:text="@string/settings"
-                android:textSize="@dimen/top_button_text" />
+                    <Button
+                        android:id="@+id/btnConfig"
+                        style="@style/GhostButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:minHeight="@dimen/top_button_height"
+                        android:paddingStart="@dimen/top_button_padding"
+                        android:paddingEnd="@dimen/top_button_padding"
+                        android:text="@string/btn_config"
+                        android:textSize="@dimen/top_button_text" />
+
+                    <Button
+                        android:id="@+id/btnAbout"
+                        style="@style/GhostButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/top_button_gap"
+                        android:minWidth="0dp"
+                        android:minHeight="@dimen/top_button_height"
+                        android:paddingStart="@dimen/top_button_padding"
+                        android:paddingEnd="@dimen/top_button_padding"
+                        android:text="@string/about_entry"
+                        android:textSize="@dimen/top_button_text" />
+
+                    <Button
+                        android:id="@+id/btnSettings"
+                        style="@style/GhostButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="@dimen/top_button_gap"
+                        android:minWidth="0dp"
+                        android:minHeight="@dimen/top_button_height"
+                        android:paddingStart="@dimen/top_button_padding"
+                        android:paddingEnd="@dimen/top_button_padding"
+                        android:text="@string/settings"
+                        android:textSize="@dimen/top_button_text" />
+                </LinearLayout>
+            </HorizontalScrollView>
         </LinearLayout>
 
         <HorizontalScrollView

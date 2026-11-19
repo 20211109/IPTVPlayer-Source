@@ -38,8 +38,10 @@
     <dimen name="hero_epg_gap">10dp</dimen>
     <dimen name="hero_next_gap">3dp</dimen>
 
-    <!-- 直播源 / 关于 / 设置 三个次级入口（加大一档更好点按、更好找） -->
+    <!-- 直播源 / 关于 / 设置 三个次级入口：
+         手机屏宽只有 360dp 左右，放三个按钮必须收紧内边距，
+         否则「设置」会被挤出屏幕（大屏版本另有一套更宽松的尺寸） -->
     <dimen name="top_button_height">40dp</dimen>
-    <dimen name="top_button_padding">16dp</dimen>
-    <dimen name="top_button_gap">8dp</dimen>
+    <dimen name="top_button_padding">8dp</dimen>
+    <dimen name="top_button_gap">6dp</dimen>
 </resources>
