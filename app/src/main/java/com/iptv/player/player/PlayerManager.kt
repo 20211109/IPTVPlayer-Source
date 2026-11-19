@@ -211,10 +211,6 @@ class PlayerManager(
                     )
                     // 时间优先：按"可播放秒数"而非字节数管理缓冲，直播弱网更稳
                     .setPrioritizeTimeOverSizeThresholds(true)
-                    // 保留 1 秒后向缓冲：直播中网络抖动导致分片晚到时，
-                    // 播放器可回读一小段已缓冲内容顶住，而不是立刻进入 rebuffer。
-                    // TVBox 类播放器抗抖动的关键之一，代价只是约 1 秒的时移。
-                    .setBackBufferDurationMs(1_000)
                     .build()
             )
             .build()
