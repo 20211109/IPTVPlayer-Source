@@ -47,21 +47,27 @@ object UpdateManager {
 
     /**
      * 生成候选地址。
-     * version.json 里的 apk 已是 jsDelivr CDN 直链（国内可直连），必须放在最前，
-     * 否则一旦加速器前缀拼错反而拖慢/失败。加速器拼接只作为 CDN 不可用时的兜底。
+     * 用户电视/手机无科学上网：加速器必须是【主路径】，排在最前。
+     * version.json 的 apk 是 raw.githubusercontent.com 直链，
+     * ghfast.top / gh-proxy.com 等加速器支持「前缀 + 完整URL」代理它。
+     * jsDelivr 作为无需代理的国内直连兜底（最后尝试）。
      */
     private fun candidateUrls(direct: String): List<String> {
         val list = mutableListOf<String>()
-        // 主路径：原始直链（jsDelivr CDN）优先，并补两个备用 CDN 节点
-        list.add(direct)
-        if (direct.contains("cdn.jsdelivr.net")) {
-            list.add(direct.replace("cdn.jsdelivr.net", "fastly.jsdelivr.net"))
-            list.add(direct.replace("cdn.jsdelivr.net", "gcore.jsdelivr.net"))
+        // ① 加速器优先（主路径）
+        UpdateConfig.ACCELERATORS.forEach { prefix ->
+            list.add(prefix.trimEnd('/') + "/" + direct)
         }
-        // 兜底：仅对 github.com 直链拼加速器；CDN 直链拼完整 URL 多数代理不支持，跳过
-        if (direct.contains("github.com")) {
-            UpdateConfig.ACCELERATORS.forEach { prefix ->
-                list.add(prefix.trimEnd('/') + "/" + direct)
+        // ② 原始直链兜底
+        list.add(direct)
+        // ③ jsDelivr CDN 兜底：raw 链接转成 cdn.jsdelivr.net/gh 格式，国内可直连
+        if (direct.contains("raw.githubusercontent.com")) {
+            val rest = direct.substringAfter("raw.githubusercontent.com/")
+            val parts = rest.split("/", limit = 4)
+            if (parts.size == 4) {
+                val (owner, repo, branch, path) = parts
+                list.add("https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$path")
+                list.add("https://fastly.jsdelivr.net/gh/$owner/$repo@$branch/$path")
             }
         }
         return list.distinct()

@@ -43,11 +43,11 @@
    ```bash
    git tag v1.34 && git push origin v1.34
    ```
-   打 tag 后 CI 自动：① 编译 debug/release 两个包 → ② 把 release 包发布到公开仓库的 Release → ③ 生成 `version.json`（含版本号、下载直链、SHA-256）→ ④ 清理公开仓库的旧 Release，只保留最新版以节省存储配额。
-3. 用户在 App 内「关于 → 检查更新」即可从公开仓库拉取新版本。
+   打 tag 后 CI 自动：① 编译 debug/release 两个包 → ② 把 release 包以带版本号的文件名发布到公开仓库（历史版本保留）→ ③ 生成 `version.json`（含版本号、raw 下载直链、SHA-256）→ ④ 刷新 CDN 缓存。
+3. 用户在 App 内「关于 → 检查更新」即可从公开仓库拉取新版本；App 会优先通过内置加速器代理 raw 直链下载，**无需科学上网**。
 
-> **存储配额说明**：公开仓库长期只保留一个 Release + 一份 release APK；Artifacts 保留期 1 天。这样不会随版本迭代无限占用 GitHub 存储。
-> **签名**：CI 通过 Secrets 中的 `RELEASE_TOKEN`（有 repo 权限的 PAT）跨仓库发布；签名密钥走仓库内 `app/ci/`（私密仓库不外泄）。
+> **存储说明**：公开仓库按版本号保留历史 APK（如 `IPTVPlayer-release-1.34.apk`），`version.json` 始终指向最新版；Artifacts 保留期 1 天。历史版本累积会占用一定 GitHub 存储，需要时可在公开仓库手动删除旧 APK 文件。
+> **签名与发布隔离**：CI 通过全新专用 SSH Deploy Key（存于私密仓库 Secrets 的 `DEPLOY_KEY`，仅授权到该公开仓库）推送产物，**不复用任何旧仓库的 PAT / RELEASE_TOKEN**。签名密钥在 `app/ci/`（私密仓库不外泄）。
 
 > 本地也有 `gradlew`（已附带 wrapper），有 JDK 17 时可直接 `./gradlew assembleRelease`。
 
