@@ -51,13 +51,19 @@ class PlayerManager(
         private const val SILENT404_WINDOW_MS = 30_000L
         /** 同一次 404 会被重复回调多次，短间隔内只恢复一次，避免恢复风暴 */
         private const val SILENT404_MIN_INTERVAL_MS = 700L
-        /** 卡死判定：进度静止超过该时长即视为卡死（直播正常播放时进度一定在走） */
-        private const val FREEZE_TIMEOUT_MS = 12_000L
+        /**
+         * 卡死判定：进度静止超过该时长才视为卡死。
+         * 直播正常播放时进度一定在走，所以这是唯一可靠的判据；
+         * 15 秒是为了吸收弱源「一个分片要拉十几秒」的正常抖动，避免误判后反复恢复。
+         */
+        private const val FREEZE_TIMEOUT_MS = 15_000L
         /** 卡死巡检间隔 */
         private const val FREEZE_CHECK_INTERVAL_MS = 3_000L
         /** 时间窗内反复卡死达到该次数，说明这条线路已经不可用，直接换线路 */
-        private const val FREEZE_SWITCH_THRESHOLD = 3
-        private const val FREEZE_SWITCH_WINDOW_MS = 180_000L
+        private const val FREEZE_SWITCH_THRESHOLD = 4
+        private const val FREEZE_SWITCH_WINDOW_MS = 300_000L
+        /** 刚换过线路后的观察期：新线路起播/建缓冲期间不因卡死再换，避免连续跳线 */
+        private const val FREEZE_SWITCH_GRACE_MS = 30_000L
         /** 连续播放这么久算「这条线路撑住了」，重置卡死换线计数 */
         private const val STABLE_PLAY_RESET_MS = 60_000L
         /** 所有线路都卡死后，暂停自动换线的时长，避免两条线路无限来回切 */
@@ -92,16 +98,14 @@ class PlayerManager(
     /** 近期卡死时间点，用于判断「这条线路是不是已经废了」 */
     private val freezeTimestamps = ArrayDeque<Long>()
 
-    /** 最近一次真正渲染出视频帧的时间：解码器卡死时进度还在走，只能靠它识别 */
-    private var lastVideoFrameAtMs = 0L
-    private var hasVideoFrames = false
-
     /** 连续「卡死换线」次数：只有稳定播放够久才清零，防止两条线路无限来回切 */
     private var freezeSwitchChain = 0
     /** 本次稳定播放起点，用于判断线路是否已经撑住 */
     private var stableSinceMs = 0L
     /** 所有线路都卡死后的冷却截止时间 */
     private var freezeSwitchCooldownUntilMs = 0L
+    /** 刚换过线路后的观察期截止时间：期间不再因卡死换源，避免连续跳线 */
+    private var freezeSwitchGraceUntilMs = 0L
 
     /** 所有线路都卡住、自动换线已暂停时回调 */
     var onAllSourcesStuck: (() -> Unit)? = null
@@ -218,19 +222,6 @@ class PlayerManager(
         // 电视盒子长时间播放时 WiFi 会进入省电模式，表现为「播一会儿卡一下」，
         // 播放期间请求网络唤醒锁，避免无线链路休眠丢包。
         player.setWakeMode(C.WAKE_MODE_NETWORK)
-
-        // 记录视频帧输出时间：解码器/渲染器卡死时播放进度照常在走，
-        // 只有「多久没出帧」能识别这种情况。
-        player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
-            override fun onVideoFrameProcessingOffset(
-                eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
-                totalProcessingOffsetUs: Long,
-                frameCount: Int
-            ) {
-                lastVideoFrameAtMs = System.currentTimeMillis()
-                hasVideoFrames = true
-            }
-        })
 
         // 卡死看门狗：只靠错误回调不够——有些不健康的直播源既不报错也不出画面，
         // 播放器停在缓冲态「动也不动」，必须靠进度巡检兜底。
@@ -459,8 +450,6 @@ class PlayerManager(
         lastProgressPositionMs = 0L
         lastProgressAtMs = 0L
         freezeRecoveries = 0
-        lastVideoFrameAtMs = 0L
-        hasVideoFrames = false
 
         player.setMediaItem(mediaItem, positionMs)
         player.prepare()
@@ -508,19 +497,22 @@ class PlayerManager(
             }
         }
 
-        // 两条判据：
-        //  1) 播放进度不再前进 —— 网络/播放器卡在缓冲；
-        //  2) 进度还在走但不出画面 —— 解码器或渲染器卡死，画面上只剩最后一帧。
+        // 唯一可靠的判据：直播是连续流，正常播放时 currentPosition 一定在前进，
+        // 长时间静止不动才是真的卡死。
+        // （旧版还叠加了「多久没出视频帧」的判据，但它监听的是丢帧偏移回调——
+        //   只在掉帧时才触发，「一段时间没触发」恰恰说明播放很顺畅，
+        //   结果每次顺畅播放十几秒就被误判成卡死，进而反复恢复、换源。）
         val progressStuck = !progressAdvanced && now - lastProgressAtMs >= FREEZE_TIMEOUT_MS
-        val hasVideoTrack = player.currentTracks.groups.any { it.type == C.TRACK_TYPE_VIDEO }
-        val framesStuck = hasVideoTrack && hasVideoFrames && lastVideoFrameAtMs > 0 &&
-            now - lastVideoFrameAtMs >= FREEZE_TIMEOUT_MS
-        if (!progressStuck && !framesStuck) return
+        if (!progressStuck) return
+
+        // 刚换过线路：新线路起播、建缓冲期间不干预，避免连续跳线
+        if (now < freezeSwitchGraceUntilMs) {
+            lastProgressAtMs = now
+            return
+        }
 
         // ===== 判定卡死 =====
         lastProgressAtMs = now
-        // 重置帧计时，避免恢复动作还没被验证就立刻再次判定卡死
-        lastVideoFrameAtMs = now
         freezeRecoveries++
         freezeTimestamps.addLast(now)
         while (freezeTimestamps.isNotEmpty() &&
@@ -590,6 +582,7 @@ class PlayerManager(
         freezeTimestamps.clear()
         freezeSwitchChain++
         stableSinceMs = 0L
+        freezeSwitchGraceUntilMs = now + FREEZE_SWITCH_GRACE_MS
         givenUp = false
         switchTo(next, C.TIME_UNSET)
         onFreezeSwitched?.invoke(next, channel.sources.size)

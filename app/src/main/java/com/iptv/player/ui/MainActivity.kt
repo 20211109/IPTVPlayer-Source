@@ -880,7 +880,8 @@ class MainActivity : AppCompatActivity() {
         pm.onFreezeSwitched = { idx, total ->
             runOnUiThread {
                 currentLineLabel = if (total > 1) "线路 ${idx + 1}/$total" else "直播"
-                toast("画面卡住，已自动切换线路")
+                // 只在状态栏提示，不弹 toast：偶发一次换线很正常，弹窗反而打断观看
+                setStatus("$currentLineLabel · 画面卡顿，已切换线路", R.color.yellow)
             }
         }
         // 所有线路都卡死：停止来回换线，冷却 2 分钟后再允许
