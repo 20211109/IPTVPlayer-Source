@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        中性石墨基调。
-        旧版用近黑（#08090B）+ 高对比纯白文字：电视/盒子在大屏上长时间观看时，
-        亮画面与近黑背景的强反差最容易让眼睛疲劳（尤其在暗环境里）。
-        这里整体抬亮一档到「深灰」区间 —— 仍然是深色 UI，但明暗差更柔和，久看不刺眼。
+        中性石墨基调（第二版：明显提亮）。
+        最早是近黑 #08090B，在大屏上亮暗反差太硬、久看累眼；先抬到 #171A20 仍偏暗，
+        这一版整体进到「深灰蓝」区间：
+          页面 #2B313A / 卡片 #3A4250 / 焦点 #525D6E
+        仍然是深色 UI（不是浅色主题），但和视频画面的反差已经柔和很多，
+        在暗环境里看久了不发胀。文字同步提亮一档，保证在更亮的底色上仍有足够对比。
     -->
     <color name="black">#FF000000</color>
-    <color name="background">#FF171A20</color>
-    <color name="background_2">#FF1C2027</color>
-    <color name="surface">#FF232832</color>
-    <color name="surface_2">#FF2C323D</color>
-    <color name="card">#FF212630</color>
-    <color name="card_focus">#FF333A47</color>
+    <color name="background">#FF2B313A</color>
+    <color name="background_2">#FF313842</color>
+    <color name="surface">#FF3A4250</color>
+    <color name="surface_2">#FF46505F</color>
+    <color name="card">#FF3A4250</color>
+    <color name="card_focus">#FF525D6E</color>
 
     <!-- 单一强调色：柔和的 iOS 蓝，仅用于焦点、选中和可点击元素 -->
     <color name="brand_cyan">#FF0A84FF</color>
@@ -23,9 +25,9 @@
     <color name="accent">#FF8CC4FF</color>
 
     <!-- 文本：三级灰度。最亮一档略降，避免纯白在大屏上「扎眼」 -->
-    <color name="text_primary">#FFEDEEF1</color>
-    <color name="text_secondary">#FFA9ADB6</color>
-    <color name="text_hint">#FF82868F</color>
+    <color name="text_primary">#FFF0F1F4</color>
+    <color name="text_secondary">#FFB9BDC6</color>
+    <color name="text_hint">#FF90959E</color>
 
     <!-- 状态色沿用 iOS 系统色 -->
     <color name="green">#FF32D74B</color>

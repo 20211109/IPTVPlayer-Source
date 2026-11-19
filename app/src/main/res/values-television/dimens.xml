@@ -15,9 +15,13 @@
     <dimen name="hero_sub">13sp</dimen>
     <dimen name="section_title">19sp</dimen>
     <dimen name="card_height">82dp</dimen>
-    <dimen name="card_logo_size">46dp</dimen>
-    <dimen name="card_padding">6dp</dimen>
-    <dimen name="card_name">16sp</dimen>
+    <dimen name="card_logo_size">42dp</dimen>
+    <dimen name="card_padding">5dp</dimen>
+    <dimen name="card_padding_h">8dp</dimen>
+    <dimen name="card_name">15sp</dimen>
+    <dimen name="card_name_min">10sp</dimen>
+    <dimen name="card_name_gap">5dp</dimen>
+    <dimen name="card_badge">11sp</dimen>
     <dimen name="card_meta">12sp</dimen>
     <dimen name="chip_height">36dp</dimen>
     <dimen name="chip_text">14sp</dimen>

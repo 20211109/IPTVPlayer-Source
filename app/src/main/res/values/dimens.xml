@@ -7,10 +7,15 @@
     <dimen name="hero_title">21sp</dimen>
     <dimen name="hero_sub">12sp</dimen>
     <dimen name="section_title">18sp</dimen>
-    <dimen name="card_height">100dp</dimen>
-    <dimen name="card_logo_size">48dp</dimen>
-    <dimen name="card_padding">10dp</dimen>
+    <dimen name="card_height">104dp</dimen>
+    <dimen name="card_logo_size">44dp</dimen>
+    <dimen name="card_padding">8dp</dimen>
+    <dimen name="card_padding_h">8dp</dimen>
+    <!-- 名称：autosize 在 [card_name_min, card_name] 之间自动挑字号，长名不被截断 -->
     <dimen name="card_name">15sp</dimen>
+    <dimen name="card_name_min">9sp</dimen>
+    <dimen name="card_name_gap">5dp</dimen>
+    <dimen name="card_badge">9sp</dimen>
     <dimen name="card_meta">12sp</dimen>
     <dimen name="chip_height">38dp</dimen>
     <dimen name="chip_text">13sp</dimen>

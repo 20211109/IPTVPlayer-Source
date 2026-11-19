@@ -2,7 +2,7 @@
 <!-- 深色弹窗：中性石墨底 + 发丝描边，保证浅色文字有足够对比度 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FF262C36" />
+    <solid android:color="#FF414A59" />
     <corners android:radius="22dp" />
     <stroke
         android:width="1dp"

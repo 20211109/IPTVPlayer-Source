@@ -1,5 +1,6 @@
 package com.iptv.player.ui
 
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.view.LayoutInflater
 import android.view.View
@@ -35,28 +36,35 @@ class ChannelAdapter(
         failedLogos.removeAll { it.startsWith(name + "|") }
     }
 
-    inner class VH(view: View) : RecyclerView.ViewHolder(view) {
+    inner class VH(view: View, val isTvUi: Boolean) : RecyclerView.ViewHolder(view) {
         val logoSymbol: TextView = view.findViewById(R.id.tvLogo)
         val logoImage: ImageView = view.findViewById(R.id.ivLogo)
         val number: TextView = view.findViewById(R.id.tvNumber)
         val name: TextView = view.findViewById(R.id.tvName)
         val group: TextView = view.findViewById(R.id.tvGroup)
         val score: TextView = view.findViewById(R.id.tvScore)
+        /** 分组 + 直播标识所在整行（电视端高度不够，整行隐藏） */
+        val metaRow: View = view.findViewById<View>(R.id.tvGroup).parent as View
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val v = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_channel, parent, false)
-        return VH(v)
+        val tv = parent.context.resources.configuration.uiMode and
+            Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
+        return VH(v, tv)
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val ch = items[position]
         holder.name.text = ch.name
         holder.number.text = (numberOffset + position + 1).toString()
-        // 分组与线路数合并成一行，避免第三行文字被卡片高度裁掉
-        holder.group.text = ch.group + " · " + ch.sources.size + " " +
-            holder.itemView.context.getString(R.string.source_count)
+
+        // 卡片是竖排：台标 / 名称 / 分组行。
+        // 电视端三行卡片高度只有 82dp，塞进分组行会挤掉名称的呼吸空间，
+        // 而分组已经由上方标签筛过一遍，所以电视上只留「台标 + 名称」，最清爽。
+        holder.metaRow.visibility = if (holder.isTvUi) View.GONE else View.VISIBLE
+        holder.group.text = ch.group
 
         bindLogo(holder, ch)
 
