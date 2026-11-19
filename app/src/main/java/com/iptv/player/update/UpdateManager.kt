@@ -45,6 +45,13 @@ object UpdateManager {
         .followRedirects(true)
         .build()
 
+    /** 检查更新专用：只拉几百字节，超时短，避免某个节点卡住拖慢整个检查 */
+    private val checkClient = HttpCompat.clientBuilder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
     /**
      * 生成候选地址。
      * 用户电视/手机无科学上网：加速器必须是【主路径】，排在最前。
@@ -77,7 +84,7 @@ object UpdateManager {
      * 检查是否有新版本。无网络/无 Release/已是最新 均返回 null（静默，不打扰用户）。
      */
     suspend fun checkUpdate(context: Context): UpdateInfo? = withContext(Dispatchers.IO) {
-        // 1) 首选：jsDelivr 上的 version.json（国内可直连，体积只有几百字节）
+        // 1) 首选：加速器代理 raw version.json（实时，不受 CDN 缓存影响）+ jsDelivr 兜底
         fromVersionJson(context)?.let { return@withContext it }
         // 2) 兜底：GitHub API（可科学上网的环境）
         fromGithubApi(context)
@@ -85,13 +92,15 @@ object UpdateManager {
 
     /** 读取 CI 发布的版本清单：{"version":"1.4","notes":"...","apk":"https://..."} */
     private fun fromVersionJson(context: Context): UpdateInfo? {
-        for (url in UpdateConfig.VERSION_MIRRORS) {
+        // 加速器代理的 raw 直链优先（实时、无需科学上网、几百字节秒回）；
+        // jsDelivr 缓存不可控，仅兜底。命中更新的版本即立即返回。
+        for (url in UpdateConfig.VERSION_JSON_URLS) {
             val body = try {
                 val req = Request.Builder().url(url)
                     .header("User-Agent", "IPTVPlayer")
                     .header("Cache-Control", "no-cache")
                     .build()
-                client.newCall(req).execute().use { resp ->
+                checkClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) resp.body?.string() else null
                 }
             } catch (e: Exception) {
