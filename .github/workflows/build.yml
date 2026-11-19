@@ -143,7 +143,7 @@ jobs:
           # 计算 SHA-256 与版本清单
           APK_SHA=$(sha256sum IPTVPlayer-release.apk | cut -d' ' -f1)
           VER="${TAG#v}"; VER="${VER#V}"
-          APK_URL="https://raw.githubusercontent.com/20211109/IPTVPlayer-Releases-New/main/IPTVPlayer-release.apk"
+          APK_URL="https://cdn.jsdelivr.net/gh/20211109/IPTVPlayer-Releases-New@main/IPTVPlayer-release.apk"
           NOTES="IPTV Player ${VER}"
           python3 - "$VER" "$APK_URL" "$APK_SHA" "$NOTES" <<'PY'
           import json, sys

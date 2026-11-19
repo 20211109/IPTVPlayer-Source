@@ -45,15 +45,26 @@ object UpdateManager {
         .followRedirects(true)
         .build()
 
-    /** 生成候选地址：原始直链优先，然后依次拼接各加速器前缀 */
+    /**
+     * 生成候选地址。
+     * version.json 里的 apk 已是 jsDelivr CDN 直链（国内可直连），必须放在最前，
+     * 否则一旦加速器前缀拼错反而拖慢/失败。加速器拼接只作为 CDN 不可用时的兜底。
+     */
     private fun candidateUrls(direct: String): List<String> {
-        // 加速器优先：国内设备直连 GitHub 往往要等到超时才失败
         val list = mutableListOf<String>()
-        UpdateConfig.ACCELERATORS.forEach { prefix ->
-            list.add(prefix.trimEnd('/') + "/" + direct)
-        }
+        // 主路径：原始直链（jsDelivr CDN）优先，并补两个备用 CDN 节点
         list.add(direct)
-        return list
+        if (direct.contains("cdn.jsdelivr.net")) {
+            list.add(direct.replace("cdn.jsdelivr.net", "fastly.jsdelivr.net"))
+            list.add(direct.replace("cdn.jsdelivr.net", "gcore.jsdelivr.net"))
+        }
+        // 兜底：仅对 github.com 直链拼加速器；CDN 直链拼完整 URL 多数代理不支持，跳过
+        if (direct.contains("github.com")) {
+            UpdateConfig.ACCELERATORS.forEach { prefix ->
+                list.add(prefix.trimEnd('/') + "/" + direct)
+            }
+        }
+        return list.distinct()
     }
 
     /**
