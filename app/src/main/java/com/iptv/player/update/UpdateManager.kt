@@ -375,7 +375,6 @@ object UpdateManager {
             return InstallResult.NEED_PERMISSION
         }
 
-        val authority = activity.packageName + ".fileprovider"
         val target = copyToExternal(activity, apk)
 
         // ===== 方式一（首选）：PackageInstaller 会话安装 =====
@@ -384,6 +383,24 @@ object UpdateManager {
         // 会直接抛 ActivityNotFound，表现就是「无法自动打开安装器」。
         // 会话安装由系统 PackageInstallerService 直接处理，不经过 Intent 匹配，兼容性最好。
         if (installViaSession(activity, target)) return InstallResult.DISPATCHED
+
+        return installViaIntents(activity, apk, target)
+    }
+
+    /**
+     * 会话安装没弹出确认界面时的第二轮：改用 Intent 直接拉起系统安装器。
+     *
+     * 手机（Android 10+）从广播接收器里启动界面会被后台启动限制拦掉，
+     * 会话安装因此「提交成功但界面不出现」。这里改由前台 Activity 发起 Intent，绕开该限制。
+     */
+    fun retryInstallWithIntent(activity: Activity, apk: File): InstallResult {
+        val target = copyToExternal(activity, apk)
+        return installViaIntents(activity, apk, target)
+    }
+
+    /** 方式二~四：依次用 content:// → file:// → 公共下载目录 拉起安装器 */
+    private fun installViaIntents(activity: Activity, apk: File, target: File): InstallResult {
+        val authority = activity.packageName + ".fileprovider"
 
         // ===== 方式二：content:// Intent（AOSP 及多数 ROM 的正常路径） =====
         val uri = try {

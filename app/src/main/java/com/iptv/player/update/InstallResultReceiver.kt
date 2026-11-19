@@ -21,6 +21,23 @@ import java.io.File
  */
 class InstallResultReceiver : BroadcastReceiver() {
 
+    companion object {
+        /**
+         * 前台 Activity 的弱引用。
+         * Android 10+ 禁止应用从后台启动界面，广播里直接 startActivity 会被静默丢弃；
+         * 但「当前有可见 Activity 的应用」可以启动界面，所以优先借它来拉起安装确认页。
+         */
+        private var host: java.lang.ref.WeakReference<android.app.Activity>? = null
+
+        fun attach(activity: android.app.Activity) {
+            host = java.lang.ref.WeakReference(activity)
+        }
+
+        fun detach(activity: android.app.Activity) {
+            if (host?.get() === activity) host = null
+        }
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
         val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
@@ -32,7 +49,10 @@ class InstallResultReceiver : BroadcastReceiver() {
         // 从广播里启动 Activity 必须带 NEW_TASK
         confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val ok = try {
-            context.startActivity(confirm)
+            // 先借前台 Activity 启动（不受后台启动限制），没有则退回接收器 context
+            val activity = host?.get()
+            if (activity != null && !activity.isFinishing) activity.startActivity(confirm)
+            else context.startActivity(confirm)
             true
         } catch (t: Throwable) {
             android.util.Log.w("IPTVInstall", "启动安装确认界面失败: ${t.message}")

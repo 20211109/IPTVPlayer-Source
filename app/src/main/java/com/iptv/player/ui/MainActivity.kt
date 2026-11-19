@@ -402,7 +402,7 @@ class MainActivity : AppCompatActivity() {
             when (UpdateManager.install(this@MainActivity, apk)) {
                 UpdateManager.InstallResult.DISPATCHED -> {
                     toast(getString(R.string.update_opening_installer))
-                    watchInstallLaunch(apk)
+                    watchInstallLaunch(info, apk)
                 }
                 // 权限页已打开，同时给出手动方案（安装包已经下载好，不必重下）
                 else -> showManualUpdateDialog(info, apk.absolutePath)
@@ -411,15 +411,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 发起安装后盯一眼：10 秒后如果还停留在本界面（安装界面一直没起来），
-     * 说明该 ROM 静默拦截了安装，给用户一个明确的出口，而不是对着"没反应"发呆。
+     * 发起安装后盯一眼：8 秒后如果还停留在本界面，说明安装界面根本没起来。
+     *
+     * 手机（Android 10+）上，会话安装的确认界面是靠广播里启动的，会被后台启动限制静默拦掉；
+     * 所以第一轮改由前台 Activity 直接发 Intent 拉起系统安装器（这条路不受该限制），
+     * 再不行才落到手动安装对话框，保证任何机型都不会"什么也不发生"。
      */
-    private fun watchInstallLaunch(apk: java.io.File) {
+    private fun watchInstallLaunch(info: UpdateInfo, apk: java.io.File, attempt: Int = 0) {
         uiHandler.postDelayed({
-            if (!isFinishing && !isDestroyed && hasWindowFocus()) {
-                toast(getString(R.string.update_installer_blocked, apk.absolutePath))
+            if (isFinishing || isDestroyed || !hasWindowFocus()) return@postDelayed
+            if (attempt == 0) {
+                when (UpdateManager.retryInstallWithIntent(this, apk)) {
+                    UpdateManager.InstallResult.DISPATCHED -> {
+                        toast(getString(R.string.update_opening_installer))
+                        watchInstallLaunch(info, apk, 1)
+                    }
+                    else -> showManualUpdateDialog(info, apk.absolutePath)
+                }
+            } else {
+                showManualUpdateDialog(info, apk.absolutePath)
             }
-        }, 10_000L)
+        }, 8_000L)
     }
 
     /** 自动安装失败时的兜底提示：可复制的加速器直链 + 已保存的安装包路径 */
@@ -1131,8 +1143,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 借前台 Activity 给安装结果接收器，绕开 Android 10+ 的后台启动界面限制
+        com.iptv.player.update.InstallResultReceiver.attach(this)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        com.iptv.player.update.InstallResultReceiver.detach(this)
         uiHandler.removeCallbacks(hideStatsRunnable)
         uiHandler.removeCallbacks(startWatchdog)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
