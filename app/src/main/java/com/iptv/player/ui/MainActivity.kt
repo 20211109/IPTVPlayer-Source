@@ -320,10 +320,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showUpdateDialog(info: UpdateInfo) {
+        val current = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+        } catch (e: Exception) {
+            "?"
+        }
+        val head = getString(R.string.update_version_switch, current, info.version)
         val msg = if (info.notes.isNotBlank()) {
-            "版本 ${info.version}\n\n${info.notes.take(300)}"
+            "$head\n\n${info.notes.take(300)}"
         } else {
-            "版本 ${info.version}\n\n检测到新版本，是否立即更新？"
+            "$head\n\n" + getString(R.string.update_found_hint)
         }
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.update_title))

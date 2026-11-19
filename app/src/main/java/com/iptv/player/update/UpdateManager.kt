@@ -218,6 +218,10 @@ object UpdateManager {
         onProgress: (Int) -> Unit
     ): File? = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        // 清掉历史残留的安装包：盒子存储普遍很小，反复更新会攒下几十 MB
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.absolutePath != File(dir, "app-update.apk").absolutePath) f.delete()
+        }
         val out = File(dir, "app-update.apk")
         for (url in candidateUrls(info.apkUrl)) {
             try {

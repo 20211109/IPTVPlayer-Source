@@ -77,6 +77,8 @@
     <string name="update_manual_path_hint">安装包已下载到下面路径，用电视上的文件管理器打开即可安装：</string>
     <string name="update_btn_copy_link">复制下载链接</string>
     <string name="update_btn_close">关闭</string>
+    <string name="update_version_switch">当前 %1$s → 新版本 %2$s</string>
+    <string name="update_found_hint">检测到新版本，是否立即更新？</string>
     <string name="update_opening_installer">正在打开安装界面…</string>
     <string name="update_installer_blocked">没有弹出安装界面，请用文件管理器打开：%1$s</string>
     <string name="update_link_copied">下载链接已复制</string>

@@ -27,8 +27,8 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 42
-        versionName = "1.42"
+        versionCode = 43
+        versionName = "1.43"
     }
 
     buildTypes {
