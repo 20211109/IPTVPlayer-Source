@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        固定深色主题：应用 UI 全部按深色玻璃风格设计。
+        若跟随系统浅色（DayNight），系统级 AlertDialog 会变成白底，
+        而本应用文字仍是浅色 → 弹窗内容几乎看不见。故不使用 DayNight。
+    -->
+    <style name="Theme.IPTVPlayer" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/background</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">false</item>
+
+        <!-- 所有弹窗统一走深色样式 -->
+        <item name="alertDialogTheme">@style/Theme.IPTVPlayer.Dialog</item>
+        <item name="materialAlertDialogTheme">@style/Theme.IPTVPlayer.Dialog</item>
+    </style>
+
+    <!-- 深色弹窗：深蓝底 + 高对比浅色文字 + 青色按钮 -->
+    <style name="Theme.IPTVPlayer.Dialog" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorAccent">@color/primary</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:windowBackground">@drawable/bg_dialog_dark</item>
+        <item name="buttonBarPositiveButtonStyle">@style/DialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/DialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/DialogButton</item>
+    </style>
+
+    <style name="DialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/primary</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <!-- 主按钮：单一蓝色、圆角、TV 焦点放大 -->
+    <style name="BrandButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="cornerRadius">24dp</item>
+        <item name="backgroundTint">@null</item>
+        <item name="android:background">@drawable/bg_brand_button</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!-- 幽灵按钮：发丝描边，仅在焦点时由蓝色描边强调 -->
+    <style name="GhostButton" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="cornerRadius">22dp</item>
+        <item name="strokeColor">@color/border_strong</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!-- 分组标签 -->
+    <style name="GroupChip" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="cornerRadius">20dp</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!-- 设置弹窗行 -->
+    <style name="SettingRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:layout_marginTop">10dp</item>
+    </style>
+
+    <style name="SettingLabel">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- 输入框：青色下划线 + 青色加粗数值，深色底上清晰可读 -->
+    <style name="SettingInput">
+        <item name="android:layout_width">96dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/primary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:backgroundTint">@color/brand_cyan</item>
+        <item name="android:gravity">end|center_vertical</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="android:inputType">number</item>
+        <item name="android:singleLine">true</item>
+    </style>
+</resources>

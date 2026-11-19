@@ -1,0 +1,167 @@
+name: Build IPTV Player APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 每次构建先清理旧产物，只保留最新一次，避免免费账号 Artifact 配额被占满
+      - name: 清理旧构建产物
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "清理本仓库旧的 Artifacts…"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | .id' \
+          | while read -r id; do
+              [ -n "$id" ] && gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/$id" >/dev/null 2>&1 || true
+            done
+          echo "清理完成"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      # ubuntu-latest 已预装 Android SDK 与 cmdline-tools，无需 setup-android
+      - name: Install SDK platform & build-tools
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+          echo "sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Grant executable permission
+        run: chmod +x ./gradlew
+
+      # 发布签名：优先使用 Secrets 中的正式密钥；未配置时使用仓库内固定的 CI 密钥，
+      # 保证每个版本签名完全一致，否则 Android 会拒绝覆盖安装（提示安装包损坏/签名不一致）。
+      - name: Prepare signing key
+        env:
+          KS_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > app/release.jks
+            echo "KEYSTORE_FILE=release.jks" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=$KS_PASS" >> $GITHUB_ENV
+            echo "KEY_ALIAS=$KS_ALIAS" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KS_KEY_PASS" >> $GITHUB_ENV
+            echo "Using provided release keystore."
+          else
+            # 固定签名：仓库内 app/ci/signing-key.pem + signing-cert.pem（私钥仅存于私有仓库）
+            openssl rsa -in app/ci/signing-key.pem -check -noout
+            openssl pkcs12 -export \
+              -inkey app/ci/signing-key.pem \
+              -in app/ci/signing-cert.pem \
+              -name iptvplayer \
+              -out app/release.jks \
+              -passout pass:android
+            echo "KEYSTORE_FILE=release.jks" >> $GITHUB_ENV
+            echo "KEYSTORE_PASSWORD=android" >> $GITHUB_ENV
+            echo "KEY_ALIAS=iptvplayer" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=android" >> $GITHUB_ENV
+            echo "Using built-in CI signing key."
+          fi
+
+      - name: Build APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/IPTVPlayer-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/IPTVPlayer-release.apk
+          ls -lh dist/
+
+      - name: Upload debug APK
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVPlayer-debug
+          path: dist/IPTVPlayer-debug.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload release APK
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPTVPlayer-release
+          path: dist/IPTVPlayer-release.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      # ============================================================
+      # 推送 v* 标签时，把 APK 发布到【公开】分发仓库（覆盖式，省存储）。
+      # 不使用任何 PAT / RELEASE_TOKEN：改用本仓库 Secrets 里全新的专用
+      # SSH Deploy Key（DEPLOY_KEY），它只被授权到公开仓库，和原仓库完全隔离。
+      # 公开仓库 main 分支始终只保留一份最新版 APK + version.json，
+      # 随版本迭代覆盖，存储占用恒定，不会随 Release 数量增长。
+      # ============================================================
+      - name: Publish APK to public repo via Deploy Key
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes'
+
+          git clone --depth 1 git@github.com:20211109/IPTVPlayer-Releases-New.git dist-repo
+          cd dist-repo
+          git config user.name "IPTVPlayer CI"
+          git config user.email "ci@local"
+
+          # 只保留一份 release APK，覆盖式更新（存储恒定）
+          cp ../dist/IPTVPlayer-release.apk IPTVPlayer-release.apk
+
+          # 计算 SHA-256 与版本清单
+          APK_SHA=$(sha256sum IPTVPlayer-release.apk | cut -d' ' -f1)
+          VER="${TAG#v}"; VER="${VER#V}"
+          APK_URL="https://raw.githubusercontent.com/20211109/IPTVPlayer-Releases-New/main/IPTVPlayer-release.apk"
+          NOTES="IPTV Player ${VER}"
+          python3 - "$VER" "$APK_URL" "$APK_SHA" "$NOTES" <<'PY'
+          import json, sys
+          ver, apk, sha, notes = sys.argv[1:5]
+          content = {"version": ver, "notes": notes, "apk": apk, "sha256": sha}
+          open("version.json", "w", encoding="utf-8").write(json.dumps(content, ensure_ascii=False))
+          print("version.json:", content)
+          PY
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes to publish"
+          else
+            git commit -m "chore: publish $TAG (sha256 ${APK_SHA:0:12})"
+            git push origin HEAD:main
+          fi
+          echo "published to public repo"
+
+          # 主动刷新 jsDelivr 缓存（version.json 与 APK）
+          curl -s "https://purge.jsdelivr.net/gh/20211109/IPTVPlayer-Releases-New@main/version.json" || true
+          curl -s "https://purge.jsdelivr.net/gh/20211109/IPTVPlayer-Releases-New@main/IPTVPlayer-release.apk" || true

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android TV：本身就是横向大屏，不显示「横屏/竖屏」切换 -->
+    <bool name="is_tablet">true</bool>
+</resources>

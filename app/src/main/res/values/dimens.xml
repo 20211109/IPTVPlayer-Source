@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 默认（手机）尺寸：更克制的留白与更清晰的字号层级 -->
+    <dimen name="page_padding">18dp</dimen>
+    <dimen name="hero_height">136dp</dimen>
+    <dimen name="hero_title">21sp</dimen>
+    <dimen name="hero_sub">12sp</dimen>
+    <dimen name="section_title">18sp</dimen>
+    <dimen name="card_height">100dp</dimen>
+    <dimen name="card_logo_size">48dp</dimen>
+    <dimen name="card_padding">10dp</dimen>
+    <dimen name="card_name">15sp</dimen>
+    <dimen name="card_meta">12sp</dimen>
+    <dimen name="chip_height">38dp</dimen>
+    <dimen name="chip_text">13sp</dimen>
+    <dimen name="card_radius">20dp</dimen>
+    <dimen name="stats_text">11sp</dimen>
+    <dimen name="epg_next_text">11sp</dimen>
+    <dimen name="hero_logo">68dp</dimen>
+    <dimen name="brand_name_text">26sp</dimen>
+    <dimen name="top_button_text">13sp</dimen>
+</resources>

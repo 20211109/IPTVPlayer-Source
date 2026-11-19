@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 默认（手机）：非平板，播放时可切横屏 -->
+    <bool name="is_tablet">false</bool>
+</resources>

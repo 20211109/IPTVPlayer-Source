@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 极轻的顶部高光：只保留一点层次，不做霓虹玻璃 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#08FFFFFF"
+        android:centerColor="#02FFFFFF"
+        android:endColor="#00000000"
+        android:type="linear" />
+    <corners android:radius="20dp" />
+</shape>

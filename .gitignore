@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# 本地调试产物
+*.log
+build_log*
+runs.json
+jobs.json
+j2.json
+
+# 工作记忆目录（本地専用，不入库）
+.workbuddy/

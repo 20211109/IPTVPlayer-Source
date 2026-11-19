@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="20dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="卡顿与切源"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary" />
+
+        <!-- 卡顿统计窗口 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="卡顿统计窗口(秒)" />
+            <EditText android:id="@+id/etStallWindow" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 卡顿次数阈值 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="窗口内卡顿几次后切源" />
+            <EditText android:id="@+id/etStallCount" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 切源冷却 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="切源冷却(秒)" />
+            <EditText android:id="@+id/etCooldown" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 连续失败重试上限 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="连续失败重试上限" />
+            <EditText android:id="@+id/etMaxRetry" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="缓冲(弱网卡顿主要调这里)"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary" />
+
+        <!-- 最小缓冲 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="最小缓冲(秒)" />
+            <EditText android:id="@+id/etBufferMin" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 最大缓冲 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="最大缓冲(秒)" />
+            <EditText android:id="@+id/etBufferMax" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 起播缓冲 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="起播缓冲(毫秒)" />
+            <EditText android:id="@+id/etPlayStart" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 卡顿后恢复缓冲 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="卡顿后缓冲(毫秒)" />
+            <EditText android:id="@+id/etRebuffer" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/cbShowStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="显示调试信息(缓冲/丢帧)"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <CheckBox
+            android:id="@+id/cbAutoSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="卡顿过多时自动换线路（默认关闭）"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="v1.9 起默认关闭：只要当前线路成功播放过就锁定它，抖动只在原线路重连，绝不自动跳台；只有起播一直连不上（20 秒无画面）才切下一条。开启后持续卡顿才允许换线路。"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary" />
+
+        <CheckBox
+            android:id="@+id/cbInsecureTls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="忽略证书校验（自签名直播源）"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="很多自建电视/酒店直播系统用私有证书，系统默认会拒绝连接、表现为一直黑屏。勾选后可播放这类源；代价是不再校验服务器身份，仅在放直播时使用。"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="提示：弱网卡顿时优先把「最大缓冲」调到 20–30 秒。状态栏会如实显示「播放中 / 缓冲中 / 原线路重连」，出错时还会显示错误码，反馈问题请截图。参数在下次进入频道时生效。"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary" />
+    </LinearLayout>
+</ScrollView>
