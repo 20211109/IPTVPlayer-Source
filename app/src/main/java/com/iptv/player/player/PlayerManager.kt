@@ -282,10 +282,18 @@ class PlayerManager(
                 val now = System.currentTimeMillis()
                 val code = error.errorCode
 
-                // 分片 404（错误码 2004）一律不上报界面：
+                // 分片缺失一律不上报界面：
                 //  - 播放中：静默分级恢复，绝不弹「分片不存在」的红字；
                 //  - 起播阶段：下面按普通起播失败处理，静默切下一条线路。
-                val missingSegment = code == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+                //
+                // 关键修正（v1.36）：免费源/央视频的分片 404，Media3 抛的是
+                // ERROR_CODE_IO_BAD_HTTP_STATUS(2004)，不是 ERROR_CODE_IO_FILE_NOT_FOUND(2005)。
+                // 旧代码只认 2005，导致播放中每隔几秒的占位分片 404 被误当成故障弹红字
+                // （「线路读取失败…错误码2004」），而画面其实一直在正常播放。
+                // 这里把「2004 且确属 404」也纳入静默：用 cause 链里的 HTTP 状态码 + 文案双重判断，
+                // 保证 403/5xx 等真实故障仍然照常上报，不会被误伤。
+                val missingSegment = code == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                    (code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && isHttp404(error))
                 if (missingSegment && hasEverPlayed) {
                     recoverFromMissingSegment(now)
                     return
@@ -335,6 +343,27 @@ class PlayerManager(
                 }
             }
         })
+    }
+
+    /**
+     * 判断一个 2004(BAD_HTTP_STATUS) 错误是否由 HTTP 404 分片缺失引起。
+     * Media3 把 404 分片统一归为 2004；沿 cause 链找 InvalidResponseCodeException.responseCode==404，
+     * 再辅以文案特征兜底（不同 Media3 版本包装层级可能不同）。
+     * 只有确属 404 才静默；403/5xx 等真实线路故障仍照常上报，不被误伤。
+     */
+    private fun isHttp404(error: PlaybackException): Boolean {
+        var cause: Throwable? = error.cause
+        var depth = 0
+        while (cause != null && depth++ < 12) {
+            // HttpDataSource.InvalidResponseCodeException 携带 responseCode
+            val respCode = try {
+                cause.javaClass.getMethod("getResponseCode").invoke(cause) as? Int
+            } catch (e: Exception) { null }
+            if (respCode == 404) return true
+            cause = cause.cause
+        }
+        val text = (error.message ?: "").lowercase()
+        return text.contains("404")
     }
 
     /** 当前线路是否已经成功出过画面（给 UI 判断看门狗是否需要兜底） */
