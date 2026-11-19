@@ -1,6 +1,7 @@
 package com.iptv.player.update
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
@@ -325,51 +326,54 @@ object UpdateManager {
 
         val authority = activity.packageName + ".fileprovider"
         val target = copyToExternal(activity, apk)
+
+        // ===== 方式一（首选）：PackageInstaller 会话安装 =====
+        // 完全不依赖安装器的 Intent 过滤器。很多国产盒子/电视（小米盒子4、创维等）的
+        // 安装器只声明了 file:// 过滤器，content:// 的 ACTION_VIEW / ACTION_INSTALL_PACKAGE
+        // 会直接抛 ActivityNotFound，表现就是「无法自动打开安装器」。
+        // 会话安装由系统 PackageInstallerService 直接处理，不经过 Intent 匹配，兼容性最好。
+        if (installViaSession(activity, target)) return
+
+        // ===== 方式二：content:// Intent（AOSP 及多数 ROM 的正常路径） =====
         val uri = try {
             FileProvider.getUriForFile(activity, authority, target)
         } catch (e: Exception) {
             try {
                 FileProvider.getUriForFile(activity, authority, apk)
             } catch (e2: Exception) {
-                Toast.makeText(activity, "无法读取安装包：${target.absolutePath}", Toast.LENGTH_LONG).show()
-                return
+                null
+            }
+        }
+        if (uri != null) {
+            // ClipData 携带 Uri：MIUI 安装器只认这个；再用 queryIntentActivities
+            // 动态找出本机所有能处理 APK 的安装器逐一授权（硬编码包名会漏）。
+            val clip = ClipData.newRawUri("apk", uri)
+            grantUriToAllInstallers(activity, uri)
+            fun baseIntent(action: String): Intent = Intent(action).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                clipData = clip
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            // 不能用 resolveActivity 预判：targetSdk 30+ 包可见性限制下它会返回 null。
+            for (intent in listOf(baseIntent(Intent.ACTION_VIEW), baseIntent(Intent.ACTION_INSTALL_PACKAGE))) {
+                try {
+                    activity.startActivity(intent)
+                    return
+                } catch (e: Exception) {
+                    // 换下一种方式
+                }
             }
         }
 
-        // 关键修复（小米盒子4）：
-        //  1) 用 ClipData 携带 Uri，MIUI 安装器才认；
-        //  2) 不再只授权硬编码的 4 个包名 —— 用 queryIntentActivities 动态找出
-        //     本机所有能处理 APK 的安装器并逐一授权。小米电视/盒子的安装器包名
-        //     常与 AOSP 不同（如 com.miui.packageinstaller 的变体），硬编码会漏，
-        //     表现为「检测安装包异常 / 无法调起系统安装器」；
-        //  3) ACTION_VIEW 优先：ACTION_INSTALL_PACKAGE 自 Android 7.0 起被废弃，
-        //     不少国产 ROM 直接不响应，必须让 ACTION_VIEW 排在前面。
-        val clip = ClipData.newRawUri("apk", uri)
-        grantUriToAllInstallers(activity, uri)
+        // ===== 方式三：file:// Intent（老固件兜底） =====
+        // targetSdk>=24 默认禁止 file:// URI（FileUriExposedException），
+        // 但老盒子/电视的安装器普遍只认 file://，临时放开一次检测即可。
+        if (tryFileSchemeInstall(activity, target)) return
 
-        fun baseIntent(action: String): Intent = Intent(action).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            clipData = clip
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val viewIntent = baseIntent(Intent.ACTION_VIEW)
-        val installIntent = baseIntent(Intent.ACTION_INSTALL_PACKAGE)
-
-        // 不能用 resolveActivity 预判：targetSdk 30+ 包可见性限制下它会返回 null，
-        // 但 startActivity 实际能拉起（Manifest 已声明对应 <queries>）。直接尝试即可。
-        for (intent in listOf(viewIntent, installIntent)) {
-            try {
-                activity.startActivity(intent)
-                return
-            } catch (e: Exception) {
-                // 换下一种方式
-            }
-        }
-
-        // 兜底：把安装包导出到公共「下载」目录再拉起一次。
-        // 小米等自带安装器读不到 Android/data，但能读公共目录。
+        // ===== 方式四：导出到公共「下载」目录再拉起 =====
+        // 少数安装器读不到 Android/data，但能读公共目录。
         val exported = exportToDownloads(activity, apk)
         val exportedUri = exported?.first
         if (exportedUri != null) {
@@ -389,9 +393,89 @@ object UpdateManager {
         val hintPath = exported?.second ?: target.absolutePath
         Toast.makeText(
             activity,
-            "无法自动打开安装器，请到电视文件管理器中找到安装包手动安装：$hintPath",
+            "自动安装未成功，请用电视文件管理器打开安装包：$hintPath",
             Toast.LENGTH_LONG
         ).show()
+    }
+
+    /**
+     * 通过 PackageInstaller 会话安装。
+     *
+     * 这是绕开「国产安装器不认 content://」最有效的一条路：把 APK 写入系统安装会话，
+     * 由 PackageInstallerService 直接弹系统安装界面，完全不经过 Intent 过滤器匹配。
+     * API 21 起可用；失败（权限/固件阉割）则返回 false 交给后面的兜底方式。
+     */
+    private fun installViaSession(activity: Activity, apk: File): Boolean {
+        if (!apk.exists() || apk.length() <= 0L) return false
+        return try {
+            val installer = activity.packageManager.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+            )
+            params.setSize(apk.length())
+            val sessionId = installer.createSession(params)
+            installer.openSession(sessionId).use { session ->
+                session.openWrite("iptv-update.apk", 0, apk.length()).use { out ->
+                    apk.inputStream().use { input -> input.copyTo(out) }
+                    out.flush()
+                    session.fsync(out)
+                }
+                val resultIntent = Intent(activity, InstallResultReceiver::class.java)
+                // API 31+ 必须显式声明可变性，否则 getBroadcast 直接抛异常
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                val pending = PendingIntent.getBroadcast(activity, sessionId, resultIntent, flags)
+                session.commit(pending.intentSender)
+            }
+            true
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * 用 file:// URI 拉起安装器（老固件兜底）。
+     *
+     * targetSdk>=24 时系统默认拦截 file:// 外传（FileUriExposedException），
+     * 但小米盒子4 等老固件的安装器只声明了 file:// 过滤器，content:// 收不到。
+     * 这里临时把 StrictMode 的 VM 策略放宽成 LAX 绕过检测，调用结束立即恢复原策略。
+     */
+    private fun tryFileSchemeInstall(activity: Activity, apk: File): Boolean {
+        if (!apk.exists()) return false
+        val oldPolicy = android.os.StrictMode.getVmPolicy()
+        return try {
+            android.os.StrictMode.setVmPolicy(android.os.StrictMode.VmPolicy.LAX)
+            val fileUri = Uri.fromFile(apk)
+            val clip = ClipData.newRawUri("apk", fileUri)
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(fileUri, "application/vnd.android.package-archive")
+                clipData = clip
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = fileUri
+                clipData = clip
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            for (intent in listOf(viewIntent, installIntent)) {
+                try {
+                    activity.startActivity(intent)
+                    return true
+                } catch (e: Exception) {
+                    // 换下一种方式
+                }
+            }
+            false
+        } catch (t: Throwable) {
+            false
+        } finally {
+            android.os.StrictMode.setVmPolicy(oldPolicy)
+        }
     }
 
     /**
@@ -458,6 +542,8 @@ object UpdateManager {
         } else {
             // Android 9 及以下（小米盒子 4 等）没有 MediaStore.Downloads：
             // 有存储权限时直接写公共下载目录，至少能让文件管理器找到安装包。
+            // 注意：checkSelfPermission 是 API 23 才有的方法，在老固件上会抛
+            // NoSuchMethodError（属于 Error），所以整段外层用 catch(Throwable) 兜。
             val granted = context.checkSelfPermission(
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -475,7 +561,7 @@ object UpdateManager {
                 null to dst.absolutePath
             }
         }
-    } catch (e: Exception) {
+    } catch (t: Throwable) {
         null
     }
 
@@ -492,7 +578,7 @@ object UpdateManager {
             }
         }
         if (dst.exists() && dst.length() == apk.length()) dst else apk
-    } catch (e: Exception) {
+    } catch (t: Throwable) {
         apk
     }
 }
