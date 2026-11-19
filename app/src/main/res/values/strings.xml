@@ -69,6 +69,15 @@
     <string name="update_downloading">正在下载更新</string>
     <string name="update_download_fail">下载失败，请检查网络</string>
     <string name="update_install_fail">无法打开安装界面，请检查「安装未知应用」权限</string>
+    <string name="update_downloading_titled">正在下载 v%1$s</string>
+    <string name="update_btn_cancel">取消</string>
+    <string name="update_manual_title">手动安装</string>
+    <string name="update_manual_intro">自动安装没有成功，可以改用下面任一方式：</string>
+    <string name="update_manual_link_hint">用手机浏览器打开下面的链接下载，再传到电视上安装：</string>
+    <string name="update_manual_path_hint">安装包已下载到下面路径，用电视上的文件管理器打开即可安装：</string>
+    <string name="update_btn_copy_link">复制下载链接</string>
+    <string name="update_btn_close">关闭</string>
+    <string name="update_link_copied">下载链接已复制</string>
 
     <!-- 关于 / 检查更新 -->
     <string name="about_entry">关于</string>

@@ -75,6 +75,8 @@ class MainActivity : AppCompatActivity() {
     private var heroTouchY = 0f
     /** 直播页上/下滑或遥控上/下键换台的防抖时间戳 */
     private var lastLiveSwitchMs = 0L
+    /** 更新下载任务：进度框点「取消」时中断 */
+    private var updateJob: kotlinx.coroutines.Job? = null
     /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
     private lateinit var liveSwipe: GestureDetector
     private val hideStatsRunnable = Runnable {
@@ -334,21 +336,102 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * 下载并安装。
+     *
+     * 电视盒子上踩过的坑：点「立即更新」后界面毫无反应（10MB 的包经加速器要几十秒），
+     * 用户以为卡死；失败时也只有一句 toast，无从自救。所以这里补上：
+     * 1) 带百分比的进度框，可取消；
+     * 2) 下载/安装失败时弹出手动方案（加速器直链 + 已保存的安装包路径）。
+     */
     private fun downloadAndInstall(info: UpdateInfo) {
-        toast(getString(R.string.update_downloading))
-        lifecycleScope.launch {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d + 0.5f).toInt()
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(2))
+        }
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+        }
+        val label = TextView(this).apply {
+            text = "0%"
+            textSize = 15f
+        }
+        box.addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(6)))
+        box.addView(
+            label,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        )
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_downloading_titled, info.version))
+            .setView(box)
+            .setNegativeButton(R.string.update_btn_cancel) { _, _ -> updateJob?.cancel() }
+            .setCancelable(false)
+            .create()
+        dialog.show()
+
+        updateJob = lifecycleScope.launch {
             val apk = withContext(Dispatchers.IO) {
-                UpdateManager.download(this@MainActivity, info) { /* 后台下载，进度略 */ }
+                UpdateManager.download(this@MainActivity, info) { p ->
+                    runOnUiThread {
+                        bar.progress = p
+                        label.text = "$p%"
+                    }
+                }
             }
+            if (isFinishing || isDestroyed) return@launch
+            dialog.dismiss()
             if (apk == null) {
                 toast(getString(R.string.update_download_fail))
+                showManualUpdateDialog(info, null)
                 return@launch
             }
-            try {
-                UpdateManager.install(this@MainActivity, apk)
-            } catch (e: Exception) {
-                toast(getString(R.string.update_install_fail))
+            when (UpdateManager.install(this@MainActivity, apk)) {
+                UpdateManager.InstallResult.DISPATCHED -> Unit
+                // 权限页已打开，同时给出手动方案（安装包已经下载好，不必重下）
+                else -> showManualUpdateDialog(info, apk.absolutePath)
             }
+        }
+    }
+
+    /** 自动安装失败时的兜底提示：可复制的加速器直链 + 已保存的安装包路径 */
+    private fun showManualUpdateDialog(info: UpdateInfo, apkPath: String?) {
+        val link = UpdateManager.manualDownloadUrl(info.apkUrl)
+        val msg = buildString {
+            append(getString(R.string.update_manual_intro))
+            append("\n\n1. ")
+            append(getString(R.string.update_manual_link_hint))
+            append("\n")
+            append(link)
+            if (!apkPath.isNullOrBlank()) {
+                append("\n\n2. ")
+                append(getString(R.string.update_manual_path_hint))
+                append("\n")
+                append(apkPath)
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_manual_title))
+            .setMessage(msg)
+            .setPositiveButton(R.string.update_btn_copy_link) { _, _ -> copyLink(link) }
+            .setNegativeButton(R.string.update_btn_close, null)
+            .show()
+    }
+
+    private fun copyLink(link: String) {
+        try {
+            val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("IPTV update url", link))
+            toast(getString(R.string.update_link_copied))
+        } catch (t: Throwable) {
+            toast(link)
         }
     }
 

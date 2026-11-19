@@ -301,6 +301,22 @@ object UpdateManager {
         return saved == version
     }
 
+    /** 安装结果，供界面决定后续提示 */
+    enum class InstallResult {
+        /** 已交给系统安装器 / 安装会话，用户会看到安装界面 */
+        DISPATCHED,
+
+        /** 缺少「安装未知应用」权限，已跳转设置页 */
+        NEED_PERMISSION,
+
+        /** 所有方式都失败，需要用户手动安装 */
+        FAILED
+    }
+
+    /** 给用户手动下载用的加速器链接（与 App 内下载走同一条主路径） */
+    fun manualDownloadUrl(direct: String): String =
+        UpdateConfig.ACCELERATORS.firstOrNull()?.let { it.trimEnd('/') + "/" + direct } ?: direct
+
     /**
      * 安装 APK。
      *
@@ -309,7 +325,7 @@ object UpdateManager {
      * 因此先把安装包复制到外部私有目录（/sdcard/Android/data/<包名>/files/updates），
      * 再用电视安装器普遍支持的 ACTION_INSTALL_PACKAGE 发起安装，失败再退回 ACTION_VIEW。
      */
-    fun install(activity: Activity, apk: File) {
+    fun install(activity: Activity, apk: File): InstallResult {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             Toast.makeText(activity, "请先允许安装未知应用，再点击更新", Toast.LENGTH_LONG).show()
             try {
@@ -321,7 +337,7 @@ object UpdateManager {
                 )
             } catch (e: Exception) {
             }
-            return
+            return InstallResult.NEED_PERMISSION
         }
 
         val authority = activity.packageName + ".fileprovider"
@@ -332,7 +348,7 @@ object UpdateManager {
         // 安装器只声明了 file:// 过滤器，content:// 的 ACTION_VIEW / ACTION_INSTALL_PACKAGE
         // 会直接抛 ActivityNotFound，表现就是「无法自动打开安装器」。
         // 会话安装由系统 PackageInstallerService 直接处理，不经过 Intent 匹配，兼容性最好。
-        if (installViaSession(activity, target)) return
+        if (installViaSession(activity, target)) return InstallResult.DISPATCHED
 
         // ===== 方式二：content:// Intent（AOSP 及多数 ROM 的正常路径） =====
         val uri = try {
@@ -360,7 +376,7 @@ object UpdateManager {
             for (intent in listOf(baseIntent(Intent.ACTION_VIEW), baseIntent(Intent.ACTION_INSTALL_PACKAGE))) {
                 try {
                     activity.startActivity(intent)
-                    return
+                    return InstallResult.DISPATCHED
                 } catch (e: Exception) {
                     // 换下一种方式
                 }
@@ -370,7 +386,7 @@ object UpdateManager {
         // ===== 方式三：file:// Intent（老固件兜底） =====
         // targetSdk>=24 默认禁止 file:// URI（FileUriExposedException），
         // 但老盒子/电视的安装器普遍只认 file://，临时放开一次检测即可。
-        if (tryFileSchemeInstall(activity, target)) return
+        if (tryFileSchemeInstall(activity, target)) return InstallResult.DISPATCHED
 
         // ===== 方式四：导出到公共「下载」目录再拉起 =====
         // 少数安装器读不到 Android/data，但能读公共目录。
@@ -385,7 +401,7 @@ object UpdateManager {
             }
             try {
                 activity.startActivity(publicIntent)
-                return
+                return InstallResult.DISPATCHED
             } catch (e: Exception) {
                 // 继续走提示
             }
@@ -396,6 +412,7 @@ object UpdateManager {
             "自动安装未成功，请用电视文件管理器打开安装包：$hintPath",
             Toast.LENGTH_LONG
         ).show()
+        return InstallResult.FAILED
     }
 
     /**
