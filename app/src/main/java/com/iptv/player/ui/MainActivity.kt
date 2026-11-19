@@ -394,11 +394,26 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             when (UpdateManager.install(this@MainActivity, apk)) {
-                UpdateManager.InstallResult.DISPATCHED -> Unit
+                UpdateManager.InstallResult.DISPATCHED -> {
+                    toast(getString(R.string.update_opening_installer))
+                    watchInstallLaunch(apk)
+                }
                 // 权限页已打开，同时给出手动方案（安装包已经下载好，不必重下）
                 else -> showManualUpdateDialog(info, apk.absolutePath)
             }
         }
+    }
+
+    /**
+     * 发起安装后盯一眼：10 秒后如果还停留在本界面（安装界面一直没起来），
+     * 说明该 ROM 静默拦截了安装，给用户一个明确的出口，而不是对着"没反应"发呆。
+     */
+    private fun watchInstallLaunch(apk: java.io.File) {
+        uiHandler.postDelayed({
+            if (!isFinishing && !isDestroyed && hasWindowFocus()) {
+                toast(getString(R.string.update_installer_blocked, apk.absolutePath))
+            }
+        }, 10_000L)
     }
 
     /** 自动安装失败时的兜底提示：可复制的加速器直链 + 已保存的安装包路径 */

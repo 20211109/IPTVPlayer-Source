@@ -21,7 +21,8 @@ class PlaybackSettings(context: Context) {
         const val KEY_REBUFFER = "rebuffer_ms_v2"              // 卡顿后起播缓冲（毫秒）
         const val KEY_SHOW_STATS = "show_stats"                // 是否显示调试状态条
         const val KEY_MAX_RETRY = "max_retry"                  // 连续失败熔断阈值
-        const val KEY_INSECURE_TLS = "insecure_tls"            // 是否忽略证书校验（自签名源）
+        // 换 key：改为「默认开启」。老版本里该键已写入 false，换 key 才能让新默认对老用户生效。
+        const val KEY_INSECURE_TLS = "insecure_tls_v2"         // 是否忽略证书校验（自签名源）
         // 换 key：老版本用户 SharedPreferences 里已写入 true，改默认值对他们不生效。
         // 换 key 后所有人回落到 v1.9 的新默认（关闭），避免观看中被自动切台。
         const val KEY_AUTO_SWITCH = "auto_switch_on_stall_v2"  // 卡顿后是否自动换线路
@@ -81,9 +82,13 @@ class PlaybackSettings(context: Context) {
         get() = sp.getBoolean(KEY_AUTO_SWITCH, false)
         set(v) = sp.edit().putBoolean(KEY_AUTO_SWITCH, v).apply()
 
-    /** 忽略 HTTPS 证书校验：用于自签名证书的直播源，默认关闭 */
+    /**
+     * 忽略 HTTPS 证书校验。
+     * 默认开启：IPTV 源大量使用自签名/过期证书，关着会让整条线路直接拉流失败（黑屏），
+     * 对普通用户来说「能看」优先于严格校验；需要严格校验的用户可以自己关掉。
+     */
     var insecureTls: Boolean
-        get() = sp.getBoolean(KEY_INSECURE_TLS, false)
+        get() = sp.getBoolean(KEY_INSECURE_TLS, true)
         set(v) = sp.edit().putBoolean(KEY_INSECURE_TLS, v).apply()
 
     fun reset() {
@@ -97,7 +102,7 @@ class PlaybackSettings(context: Context) {
             .putInt(KEY_REBUFFER, DEF_REBUFFER)
             .putInt(KEY_MAX_RETRY, DEF_MAX_RETRY)
             .putBoolean(KEY_SHOW_STATS, false)
-            .putBoolean(KEY_INSECURE_TLS, false)
+            .putBoolean(KEY_INSECURE_TLS, true)
             .putBoolean(KEY_AUTO_SWITCH, false)
             .apply()
     }
