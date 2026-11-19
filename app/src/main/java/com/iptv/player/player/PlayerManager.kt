@@ -256,9 +256,23 @@ class PlayerManager(
         try {
             val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
                 as android.net.ConnectivityManager
-            cm.registerDefaultNetworkCallback(networkCallback)
+            // 固件兼容：registerDefaultNetworkCallback 是 API 24（Android 7.0）才有的方法。
+            // 小米盒子4 等国产盒子的低版本固件里没有这个实现，直接调用会抛
+            // NoSuchMethodError —— 它属于 Error 而不是 Exception，catch(Exception) 根本接不住，
+            // 会一路冒到外层，表现为「播放器初始化失败」或直接闪退、完全无法播放。
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                cm.registerDefaultNetworkCallback(networkCallback)
+            } else {
+                // 老固件退回 API 21 就有的「按 NetworkRequest 注册」，效果等价
+                val request = android.net.NetworkRequest.Builder()
+                    .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                cm.registerNetworkCallback(request, networkCallback)
+            }
             connectivityManager = cm
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            // 网络监听只是让断网恢复更快（卡死看门狗已能兜底），
+            // 任何异常/错误都不能影响播放器初始化，失败就当作没有这个能力。
             connectivityManager = null
         }
 
@@ -680,8 +694,8 @@ class PlayerManager(
         mainHandler.removeCallbacks(freezeCheckRunnable)
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
-        } catch (e: Exception) {
-            // 忽略：可能未注册成功
+        } catch (t: Throwable) {
+            // 忽略：可能未注册成功，或老固件不支持
         }
         player.release()
     }
