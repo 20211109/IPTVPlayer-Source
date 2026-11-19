@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.LayoutInflater
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.GridLayoutManager
@@ -33,7 +34,16 @@ class ChannelPickerDialog(
     fun show() {
         if (isShowing || items.isEmpty()) return
 
+        // 窗体外框按屏幕比例先定好，再交给弹窗：这样频道多时不会把弹窗顶到全屏、
+        // 频道少时也不会缩成一条细边（列表用 weight 填满剩余高度）
+        val metrics = activity.resources.displayMetrics
+        val tv = activity.resources.configuration.uiMode and
+            Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
+        val w = (metrics.widthPixels * if (tv) 0.86f else 0.94f).toInt()
+        val h = (metrics.heightPixels * if (tv) 0.78f else 0.62f).toInt()
+
         val view = LayoutInflater.from(activity).inflate(R.layout.dialog_channel_picker, null)
+        view.layoutParams = ViewGroup.LayoutParams(w, h)
         val rv = view.findViewById<RecyclerView>(R.id.rvPicker)
         rv.layoutManager = GridLayoutManager(activity, activity.resources.getInteger(R.integer.grid_columns))
         val adapter = ChannelAdapter(onChannelClick = { ch ->
@@ -54,15 +64,6 @@ class ChannelPickerDialog(
         d.setOnDismissListener { dialog = null }
         dialog = d
         d.show()
-
-        // 窗体尺寸按屏幕比例给：不用 wrap_content，否则频道一多弹窗会顶到全屏
-        val metrics = activity.resources.displayMetrics
-        val tv = activity.resources.configuration.uiMode and
-            Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-        d.window?.setLayout(
-            (metrics.widthPixels * if (tv) 0.86f else 0.94f).toInt(),
-            (metrics.heightPixels * if (tv) 0.78f else 0.62f).toInt()
-        )
 
         // 打开时直接停在当前正在播放的频道上：遥控器一进来就知道"现在在看哪个"
         val index = items.indexOfFirst { it === current || (current != null && it.name == current.name) }
