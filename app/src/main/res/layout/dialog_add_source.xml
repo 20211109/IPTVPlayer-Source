@@ -12,6 +12,7 @@
         android:padding="22dp">
 
         <TextView
+            android:id="@+id/tvAddTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/source_add_title"

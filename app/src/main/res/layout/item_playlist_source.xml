@@ -52,7 +52,7 @@
     </LinearLayout>
 
     <Button
-        android:id="@+id/btnRename"
+        android:id="@+id/btnRefresh"
         style="@style/GhostButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -60,7 +60,20 @@
         android:minHeight="34dp"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
-        android:text="@string/source_rename"
+        android:text="@string/source_refresh"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/btnRename"
+        style="@style/GhostButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:minWidth="0dp"
+        android:minHeight="34dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:text="@string/source_edit"
         android:textSize="11sp" />
 
     <Button

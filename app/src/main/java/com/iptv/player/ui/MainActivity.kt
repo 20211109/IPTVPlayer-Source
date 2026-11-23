@@ -731,6 +731,7 @@ class MainActivity : AppCompatActivity() {
     private fun showSourceManager() {
         val dialog = SourceManagerDialog(
             this,
+            lifecycleScope,
             repo,
             onAdd = { name, content, isUrl -> addPlaylistSource(name, content, isUrl) },
             onChanged = { rebuildChannelsFromSources() },

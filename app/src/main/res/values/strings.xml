@@ -42,8 +42,16 @@
     <string name="source_add_manual">手动添加</string>
     <string name="source_done">完成</string>
     <string name="source_enable">启用该直播源</string>
-    <string name="source_rename">改名</string>
+    <string name="source_edit">编辑</string>
+    <string name="source_refresh">刷新</string>
     <string name="source_delete">删除</string>
+    <string name="source_refreshing">正在刷新…</string>
+    <string name="source_refresh_done">已更新「%1$s」，共 %2$d 个频道</string>
+    <string name="source_refresh_fail">刷新失败：%1$s</string>
+    <string name="source_refresh_text_only">本地文本源没有订阅地址，请点「编辑」修改内容</string>
+    <string name="source_edit_title">编辑直播源</string>
+    <string name="source_edit_saved">已保存「%1$s」</string>
+    <string name="source_edit_confirm">保存</string>
     <string name="source_add_title">添加直播源</string>
     <string name="source_add_hint">优先使用 M3U 地址，也可以直接粘贴列表文本；名称只是方便你区分不同源。</string>
     <string name="source_name_label">名称（便于识别）</string>

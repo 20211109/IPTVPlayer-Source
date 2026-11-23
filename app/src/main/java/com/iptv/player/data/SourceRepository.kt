@@ -101,14 +101,29 @@ class SourceRepository(context: Context) {
         return item
     }
 
-    fun updatePlaylistSource(id: String, name: String? = null, enabled: Boolean? = null) {
+    /**
+     * 更新一份直播源。所有字段均为可选，未传的保持原值。
+     * url/raw 用于「刷新 / 编辑订阅源」：源站内容变化后重新下载并落库，
+     * 下次 rebuildChannelsFromSources() 就能读到最新频道列表。
+     */
+    fun updatePlaylistSource(
+        id: String,
+        name: String? = null,
+        enabled: Boolean? = null,
+        url: String? = null,
+        raw: String? = null
+    ) {
         val sources = getPlaylistSources().map { s ->
             if (s.id != id) s else s.copy(
                 name = name?.trim()?.ifBlank { s.name } ?: s.name,
-                enabled = enabled ?: s.enabled
+                enabled = enabled ?: s.enabled,
+                url = url ?: s.url,
+                raw = raw ?: s.raw
             )
         }
         savePlaylistSources(sources)
+        // 兼容旧字段：让旧键始终指向最新一份源，避免旧版读取路径拿到过期内容
+        sources.lastOrNull()?.let { savePlaylist(it.raw, it.url) }
     }
 
     fun deletePlaylistSource(id: String) {
