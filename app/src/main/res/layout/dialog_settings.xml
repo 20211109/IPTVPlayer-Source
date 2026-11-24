@@ -20,25 +20,25 @@
         <!-- 卡顿统计窗口 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="卡顿统计窗口(秒)" />
-            <EditText android:id="@+id/etStallWindow" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vStallWindow" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 卡顿次数阈值 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="窗口内卡顿几次后切源" />
-            <EditText android:id="@+id/etStallCount" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vStallCount" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 切源冷却 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="切源冷却(秒)" />
-            <EditText android:id="@+id/etCooldown" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vCooldown" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 连续失败重试上限 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="连续失败重试上限" />
-            <EditText android:id="@+id/etMaxRetry" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vMaxRetry" style="@style/SettingValue" />
         </LinearLayout>
 
         <TextView
@@ -53,26 +53,34 @@
         <!-- 最小缓冲 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="最小缓冲(秒)" />
-            <EditText android:id="@+id/etBufferMin" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vBufferMin" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 最大缓冲 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="最大缓冲(秒)" />
-            <EditText android:id="@+id/etBufferMax" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vBufferMax" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 起播缓冲 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="起播缓冲(毫秒)" />
-            <EditText android:id="@+id/etPlayStart" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vPlayStart" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 卡顿后恢复缓冲 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="卡顿后缓冲(毫秒)" />
-            <EditText android:id="@+id/etRebuffer" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vRebuffer" style="@style/SettingValue" />
         </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="选中数值后按「确定」会弹出数字键盘，输入完再按一次确定；一次改不完可以按「清空」重输。"
+            android:textSize="11sp"
+            android:textColor="@color/text_hint" />
 
         <CheckBox
             android:id="@+id/cbShowStats"
@@ -106,7 +114,7 @@
         <!-- 自定义缩放百分比 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="自定义缩放(50-200%)" />
-            <EditText android:id="@+id/etZoomScale" style="@style/SettingInput" android:inputType="number" />
+            <TextView android:id="@+id/vZoomScale" style="@style/SettingValue" />
         </LinearLayout>
 
         <!-- 解码器优先策略 -->
@@ -196,7 +204,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="提示：弱网卡顿时优先把「最大缓冲」调到 20–30 秒。状态栏会如实显示「播放中 / 缓冲中 / 原线路重连」，出错时还会显示错误码，反馈问题请截图。参数在下次进入频道时生效。"
+            android:text="提示：弱网卡顿优先把「最大缓冲」调到 20–30 秒，越小越跟手、越大越抗抖。点「保存」后会立刻用新参数重新加载当前频道（画面会重连一次），不需要重启应用。"
             android:textSize="12sp"
             android:textColor="@color/text_secondary" />
     </LinearLayout>

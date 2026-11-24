@@ -1128,8 +1128,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸
-        if (pagePlayer.visibility == View.VISIBLE) applyVideoLayout()
+        // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸。
+        // 兜底内核（VLC）要额外告诉它「surface 尺寸变了」——它得按新尺寸重建 vout，
+        // 否则画面会按竖屏的窗口尺寸画在左上角（旧版本的横屏 bug）。
+        if (pagePlayer.visibility == View.VISIBLE) {
+            applyVideoLayout()
+            fallbackPlayer?.onHostResized()
+        }
     }
 
     /**
@@ -1151,7 +1156,6 @@ class MainActivity : AppCompatActivity() {
         setStatus("$currentLineLabel · $audioDesc，兼容内核启动中…", R.color.yellow)
 
         var handled = false
-        var prepared = false
 
         fun giveUp(reason: String) {
             if (handled) return
@@ -1167,17 +1171,25 @@ class MainActivity : AppCompatActivity() {
         val fallback = VlcFallbackPlayer(
             this,
             videoHost,
-            onPrepared = {
-                if (!prepared && !handled) {
-                    prepared = true
-                    fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
-                    fallbackTimeoutRunnable = null
-                    pbLoading.visibility = View.GONE
-                    // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
-                    setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
-                }
+            // 这个回调要幂等：横竖屏切换后内核会按新尺寸重建一次，重建完成同样会回调，
+            // 此时只需把转圈收掉、状态恢复成「播放中」，不能当成二次起播处理。
+            onPrepared = preparedCb@{
+                if (handled) return@preparedCb
+                fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
+                fallbackTimeoutRunnable = null
+                pbLoading.visibility = View.GONE
+                // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
+                setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
             },
-            onFailed = { reason -> giveUp(reason) }
+            onFailed = { reason -> giveUp(reason) },
+            // 横竖屏切换 / 画面比例变化时 VLC 要按新尺寸重建视频输出：
+            // 给个转圈提示，避免用户以为卡住了（重建约 0.5–1.5 秒）
+            onRestarting = {
+                if (!handled) {
+                    pbLoading.visibility = View.VISIBLE
+                    setStatus("$currentLineLabel · 画面重排中…", R.color.yellow)
+                }
+            }
         )
         fallbackPlayer = fallback
         fallback.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
@@ -1294,9 +1306,19 @@ class MainActivity : AppCompatActivity() {
         pickerDialog?.dismiss()
         pickerDialog = null
         pbLoading.visibility = View.GONE
-        releaseVlcFallback()
+        // 退出路径必须绝对可靠：即便兜底内核/Exo 在释放时抛异常，
+        // 也一定要把界面切回列表，绝不能出现「按钮点了没反应、只能强杀」。
+        try {
+            releaseVlcFallback()
+        } catch (t: Throwable) {
+            fallbackPlayer = null
+        }
         playerViewRef?.visibility = View.VISIBLE
-        playerManager?.player?.stop()
+        try {
+            playerManager?.player?.stop()
+        } catch (t: Throwable) {
+            // 忽略
+        }
         // 退出播放后恢复正常息屏策略，避免列表页也一直亮着
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         pagePlayer.visibility = View.GONE
@@ -1345,22 +1367,32 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /** 播放参数设置弹窗 */
+    /**
+     * 播放参数设置弹窗。
+     *
+     * 两条硬规则：
+     * 1) 数值项一律不用 EditText。电视遥控器上没有数字键，EditText 上的改法是
+     *    「方向键挪光标 + 一位一位按」，改一个 1500 要按十几次还容易按错；
+     *    现在改成选中数值按「确定」→ 弹数字键盘 → 输完再按「确定」才写入。
+     * 2) 保存后立刻重建播放引擎并重新加载当前频道。旧版本这些参数只在
+     *    initPlayer() 里读一次，改完不重启应用根本不生效 —— 也就是「这些参数
+     *    到底有没有作用」这个疑问的来源。
+     */
     private fun showSettingsDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_settings, null)
-        val etWindow = view.findViewById<EditText>(R.id.etStallWindow)
-        val etCount = view.findViewById<EditText>(R.id.etStallCount)
-        val etCooldown = view.findViewById<EditText>(R.id.etCooldown)
-        val etBufMin = view.findViewById<EditText>(R.id.etBufferMin)
-        val etBufMax = view.findViewById<EditText>(R.id.etBufferMax)
-        val etPlayStart = view.findViewById<EditText>(R.id.etPlayStart)
-        val etRebuffer = view.findViewById<EditText>(R.id.etRebuffer)
-        val etRetry = view.findViewById<EditText>(R.id.etMaxRetry)
+        val vWindow = view.findViewById<TextView>(R.id.vStallWindow)
+        val vCount = view.findViewById<TextView>(R.id.vStallCount)
+        val vCooldown = view.findViewById<TextView>(R.id.vCooldown)
+        val vBufMin = view.findViewById<TextView>(R.id.vBufferMin)
+        val vBufMax = view.findViewById<TextView>(R.id.vBufferMax)
+        val vPlayStart = view.findViewById<TextView>(R.id.vPlayStart)
+        val vRebuffer = view.findViewById<TextView>(R.id.vRebuffer)
+        val vRetry = view.findViewById<TextView>(R.id.vMaxRetry)
         val cbStats = view.findViewById<android.widget.CheckBox>(R.id.cbShowStats)
         val cbInsecure = view.findViewById<android.widget.CheckBox>(R.id.cbInsecureTls)
         val cbAutoSwitch = view.findViewById<android.widget.CheckBox>(R.id.cbAutoSwitch)
         val spZoom = view.findViewById<android.widget.Spinner>(R.id.spZoomMode)
-        val etZoomScale = view.findViewById<EditText>(R.id.etZoomScale)
+        val vZoomScale = view.findViewById<TextView>(R.id.vZoomScale)
         val spDecoder = view.findViewById<android.widget.Spinner>(R.id.spDecoder)
         val spRender = view.findViewById<android.widget.Spinner>(R.id.spRender)
         val cbAudio = view.findViewById<android.widget.CheckBox>(R.id.cbAudio)
@@ -1369,19 +1401,21 @@ class MainActivity : AppCompatActivity() {
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
 
-        etWindow.setText(playSettings.stallWindowS.toString())
-        etCount.setText(playSettings.stallCount.toString())
-        etCooldown.setText(playSettings.stallCooldownS.toString())
-        etBufMin.setText(playSettings.bufferMinS.toString())
-        etBufMax.setText(playSettings.bufferMaxS.toString())
-        etPlayStart.setText(playSettings.playStartMs.toString())
-        etRebuffer.setText(playSettings.rebufferMs.toString())
-        etRetry.setText(playSettings.maxRetry.toString())
+        // 数值项：选中后按确定弹数字键盘，确认才写入 tag/text
+        bindNumberField(vWindow, "卡顿统计窗口", playSettings.stallWindowS, 5, 60, " 秒")
+        bindNumberField(vCount, "窗口内卡顿几次后切源", playSettings.stallCount, 2, 10, " 次")
+        bindNumberField(vCooldown, "切源冷却", playSettings.stallCooldownS, 3, 60, " 秒")
+        bindNumberField(vRetry, "连续失败重试上限", playSettings.maxRetry, 1, 20, " 次")
+        bindNumberField(vBufMin, "最小缓冲", playSettings.bufferMinS, 5, 60, " 秒")
+        bindNumberField(vBufMax, "最大缓冲", playSettings.bufferMaxS, 10, 120, " 秒")
+        bindNumberField(vPlayStart, "起播缓冲", playSettings.playStartMs, 200, 20000, " 毫秒")
+        bindNumberField(vRebuffer, "卡顿后缓冲", playSettings.rebufferMs, 200, 20000, " 毫秒")
+        bindNumberField(vZoomScale, "自定义缩放", playSettings.zoomScalePct, 50, 200, " %")
+
         cbStats.isChecked = playSettings.showStats
         cbInsecure.isChecked = playSettings.insecureTls
         cbAutoSwitch.isChecked = playSettings.autoSwitchOnStall
         spZoom.setSelection(zoomValues.indexOf(playSettings.zoomMode).coerceAtLeast(0))
-        etZoomScale.setText(playSettings.zoomScalePct.toString())
         spDecoder.setSelection(decoderValues.indexOf(playSettings.decoderPriority).coerceAtLeast(0))
         spRender.setSelection(renderValues.indexOf(playSettings.renderMode).coerceAtLeast(0))
         cbAudio.isChecked = playSettings.audioEnabled
@@ -1398,19 +1432,26 @@ class MainActivity : AppCompatActivity() {
                 val oldDecoder = playSettings.decoderPriority
                 val oldRender = playSettings.renderMode
                 val oldAudio = playSettings.audioEnabled
+                // 这一组只影响「播放引擎怎么建」与「卡顿检测策略」，
+                // 全部在 PlayerManager / StallDetector 构造时读取，改完必须重建才生效
+                val oldEngine = listOf(
+                    playSettings.stallWindowS, playSettings.stallCount, playSettings.stallCooldownS,
+                    playSettings.bufferMinS, playSettings.bufferMaxS, playSettings.playStartMs,
+                    playSettings.rebufferMs, playSettings.maxRetry
+                )
 
-                playSettings.stallWindowS = etWindow.intOr(PlaybackSettings.DEF_STALL_WINDOW)
-                playSettings.stallCount = etCount.intOr(PlaybackSettings.DEF_STALL_COUNT)
-                playSettings.stallCooldownS = etCooldown.intOr(PlaybackSettings.DEF_STALL_COOLDOWN)
-                playSettings.bufferMinS = etBufMin.intOr(PlaybackSettings.DEF_BUFFER_MIN)
-                playSettings.bufferMaxS = etBufMax.intOr(PlaybackSettings.DEF_BUFFER_MAX)
-                playSettings.playStartMs = etPlayStart.intOr(PlaybackSettings.DEF_PLAY_START)
-                playSettings.rebufferMs = etRebuffer.intOr(PlaybackSettings.DEF_REBUFFER)
-                playSettings.maxRetry = etRetry.intOr(PlaybackSettings.DEF_MAX_RETRY)
+                playSettings.stallWindowS = vWindow.valueOr(PlaybackSettings.DEF_STALL_WINDOW)
+                playSettings.stallCount = vCount.valueOr(PlaybackSettings.DEF_STALL_COUNT)
+                playSettings.stallCooldownS = vCooldown.valueOr(PlaybackSettings.DEF_STALL_COOLDOWN)
+                playSettings.bufferMinS = vBufMin.valueOr(PlaybackSettings.DEF_BUFFER_MIN)
+                playSettings.bufferMaxS = vBufMax.valueOr(PlaybackSettings.DEF_BUFFER_MAX)
+                playSettings.playStartMs = vPlayStart.valueOr(PlaybackSettings.DEF_PLAY_START)
+                playSettings.rebufferMs = vRebuffer.valueOr(PlaybackSettings.DEF_REBUFFER)
+                playSettings.maxRetry = vRetry.valueOr(PlaybackSettings.DEF_MAX_RETRY)
                 playSettings.showStats = cbStats.isChecked
                 playSettings.autoSwitchOnStall = cbAutoSwitch.isChecked
                 playSettings.zoomMode = zoomValues[spZoom.selectedItemPosition.coerceIn(0, zoomValues.size - 1)]
-                playSettings.zoomScalePct = etZoomScale.intOr(PlaybackSettings.DEF_ZOOM_SCALE).coerceIn(50, 200)
+                playSettings.zoomScalePct = vZoomScale.valueOr(PlaybackSettings.DEF_ZOOM_SCALE).coerceIn(50, 200)
                 playSettings.decoderPriority =
                     decoderValues[spDecoder.selectedItemPosition.coerceIn(0, decoderValues.size - 1)]
                 playSettings.renderMode =
@@ -1419,21 +1460,31 @@ class MainActivity : AppCompatActivity() {
                 playSettings.audioCompat = cbAudioCompat.isChecked
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls
+                statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
 
-                // 证书 / 解码器 / 渲染方式都在播放器或视图创建时固定，必须重建后生效
+                val engineNow = listOf(
+                    playSettings.stallWindowS, playSettings.stallCount, playSettings.stallCooldownS,
+                    playSettings.bufferMinS, playSettings.bufferMaxS, playSettings.playStartMs,
+                    playSettings.rebufferMs, playSettings.maxRetry
+                )
+                // 证书 / 解码器 / 渲染方式都在播放器或视图创建时固定，必须重建后生效；
+                // 缓冲与卡顿参数同理 —— 以前漏了这一组，用户改完「毫无反应」。
                 val needRebuild = oldTls != playSettings.insecureTls ||
                     oldDecoder != playSettings.decoderPriority ||
-                    oldRender != playSettings.renderMode
+                    oldRender != playSettings.renderMode ||
+                    oldEngine != engineNow
+
                 if (needRebuild) {
-                    releaseVlcFallback()
-                    stallDetector?.release()
-                    playerManager?.release()
-                    playerManager = null
-                    stallDetector = null
-                    playerViewRef?.player = null
-                    playerViewRef = null
-                    videoHost.removeAllViews()
-                    toast("已保存，重新进入频道后生效")
+                    val wasPlaying = pagePlayer.visibility == View.VISIBLE
+                    val channel = currentChannel
+                    rebuildPlayer()
+                    if (wasPlaying && channel != null) {
+                        // 正在看直播：直接按新参数重新起播，用户不用退出频道再进来
+                        openChannel(channel)
+                        toast("已按新参数重新加载当前频道")
+                    } else {
+                        toast("参数已保存，进入频道时生效")
+                    }
                 } else {
                     // 画面比例/缩放可以立即生效，不打断播放
                     if (oldZoomMode != playSettings.zoomMode ||
@@ -1451,11 +1502,12 @@ class MainActivity : AppCompatActivity() {
                         toast("参数已保存")
                     }
                 }
-                statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
             }
             .setNeutralButton("恢复默认") { _, _ ->
                 playSettings.reset()
                 toast("已恢复默认参数")
+                // 重开一次让界面上的数值同步成默认值（旧实现只弹个 toast，界面还是旧数字）
+                uiHandler.post { showSettingsDialog() }
             }
             .setNegativeButton("取消", null)
             .create()
@@ -1469,7 +1521,128 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun EditText.intOr(default: Int): Int = text.toString().trim().toIntOrNull() ?: default
+    /** 把某个数值格绑成「点确定 → 弹数字键盘 → 确认写入」，不再用 EditText */
+    private fun bindNumberField(
+        target: TextView,
+        label: String,
+        initial: Int,
+        min: Int,
+        max: Int,
+        suffix: String
+    ) {
+        target.tag = initial
+        target.text = displayValue(initial, suffix)
+        target.setOnClickListener {
+            val current = target.valueOr(initial)
+            promptNumber(label, current, min, max, suffix) { picked ->
+                target.tag = picked
+                target.text = displayValue(picked, suffix)
+            }
+        }
+    }
+
+    private fun displayValue(v: Int, suffix: String): String =
+        if (suffix.isBlank()) v.toString() else "$v$suffix"
+
+    private fun TextView.valueOr(default: Int): Int = (tag as? Int) ?: default
+
+    /**
+     * 数字输入弹窗：遥控器方向键选键 + 确定输入，输入完再按一次「确定」才写入。
+     * 打开时预填当前值，所以「不改直接确定」也是安全的。
+     */
+    private fun promptNumber(
+        label: String,
+        current: Int,
+        min: Int,
+        max: Int,
+        suffix: String,
+        onConfirm: (Int) -> Unit
+    ) {
+        val view = layoutInflater.inflate(R.layout.dialog_number_input, null)
+        val tvValue = view.findViewById<TextView>(R.id.tvNumValue)
+        val tvHint = view.findViewById<TextView>(R.id.tvNumHint)
+
+        val buf = StringBuilder(current.toString())
+
+        fun render() {
+            tvValue.text = if (buf.isEmpty()) "—" else buf.toString()
+        }
+
+        fun type(digit: Char) {
+            if (buf.length >= 6) return
+            if (buf.isEmpty() && digit == '0') return
+            buf.append(digit)
+            render()
+        }
+
+        fun backspace() {
+            if (buf.isNotEmpty()) buf.deleteCharAt(buf.length - 1)
+            render()
+        }
+
+        mapOf(
+            R.id.key0 to '0', R.id.key1 to '1', R.id.key2 to '2', R.id.key3 to '3',
+            R.id.key4 to '4', R.id.key5 to '5', R.id.key6 to '6', R.id.key7 to '7',
+            R.id.key8 to '8', R.id.key9 to '9'
+        ).forEach { (id, digit) ->
+            view.findViewById<TextView>(id).setOnClickListener { type(digit) }
+        }
+        view.findViewById<TextView>(R.id.keyBack).setOnClickListener { backspace() }
+        view.findViewById<TextView>(R.id.keyClear).setOnClickListener {
+            buf.setLength(0)
+            render()
+        }
+
+        tvHint.text = "范围 $min–$max$suffix · 输完按「确定」"
+        render()
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(label)
+            .setView(view)
+            .setPositiveButton("确定", null)
+            .setNegativeButton("取消", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_dark)
+            dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)
+                ?.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val typed = buf.toString().toIntOrNull()
+                if (typed == null) {
+                    toast("请先输入数字")
+                    return@setOnClickListener
+                }
+                val fixed = typed.coerceIn(min, max)
+                dialog.dismiss()
+                if (fixed != typed) toast("已调整为 $fixed$suffix（范围 $min–$max）")
+                onConfirm(fixed)
+            }
+        }
+        dialog.show()
+        // 焦点默认落在「确定」：值不改时按一下就关；要改就往键盘上走
+        try {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).requestFocus()
+        } catch (t: Throwable) {
+            // 个别机型按钮还没 attach，忽略即可
+        }
+    }
+
+    /** 释放并重建播放引擎：解码器 / 渲染方式 / 缓冲与卡顿参数改动后必须走这条路 */
+    private fun rebuildPlayer() {
+        try {
+            releaseVlcFallback()
+        } catch (t: Throwable) {
+            fallbackPlayer = null
+        }
+        stallDetector?.release()
+        stallDetector = null
+        playerManager?.release()
+        playerManager = null
+        playerViewRef?.player = null
+        playerViewRef = null
+        videoHost.removeAllViews()
+    }
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

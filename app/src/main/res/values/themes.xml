@@ -104,4 +104,42 @@
         <item name="android:inputType">number</item>
         <item name="android:singleLine">true</item>
     </style>
+
+    <!--
+        数值格：不再用 EditText。
+        电视上用 EditText 改数字要先把光标挪到正确位置、再一位一位按方向键，非常难用；
+        改成「胶囊形状的数值 + 按确定弹出数字键盘」，一次改完再确认。
+    -->
+    <style name="SettingValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minWidth">104dp</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/primary</item>
+        <item name="android:background">@drawable/bg_setting_value</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!-- 数字键盘按键：用 TextView 而不是 Button（MaterialButton 会接管 background，吃掉自定义样式） -->
+    <style name="NumKey">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_margin">4dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:background">@drawable/bg_num_key</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
 </resources>
