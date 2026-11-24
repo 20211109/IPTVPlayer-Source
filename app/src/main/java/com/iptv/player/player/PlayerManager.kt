@@ -165,7 +165,7 @@ class PlayerManager(
      * 音频兼容：识别到 AC-3/E-AC-3/MP2/DTS 时自动交给软解内核。
      * 默认开启——iptv-finder 抓到的源里这类音轨很常见，不开就是「有画面没声音」。
      */
-    var audioCompatEnabled = true
+    private var audioCompatOn = true
 
     /** 所有线路都卡住、自动换线已暂停时回调 */
     var onAllSourcesStuck: (() -> Unit)? = null
@@ -379,7 +379,7 @@ class PlayerManager(
              * 同时覆盖 HLS 切码率后音轨从 AAC 变成 AC-3 的情况。
              */
             override fun onTracksChanged(tracks: Tracks) {
-                if (suspended || audioCompatApplied || videoOnlyRequested || !audioCompatEnabled) return
+                if (suspended || audioCompatApplied || videoOnlyRequested || !audioCompatOn) return
                 val info = try {
                     AudioCodecSupport.inspect(tracks)
                 } catch (t: Throwable) {
@@ -573,7 +573,7 @@ class PlayerManager(
 
     /** 设置页「AC-3 / MP2 自动软解」开关，保存后立即生效 */
     fun setAudioCompatEnabled(enabled: Boolean) {
-        audioCompatEnabled = enabled
+        audioCompatOn = enabled
     }
 
     /** 设置页「仅视频」开关 */
@@ -873,7 +873,7 @@ class PlayerManager(
 
         audioChecked = true
         val needFallback = !info.hasUsableTrack ||
-            (audioCompatEnabled && info.needsSoftwareDecode)
+            (audioCompatOn && info.needsSoftwareDecode)
         if (needFallback) {
             triggerAudioFallback(source, info)
         }
