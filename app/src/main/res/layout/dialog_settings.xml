@@ -140,11 +140,21 @@
             android:textColor="@color/text_primary"
             android:textSize="13sp" />
 
+        <CheckBox
+            android:id="@+id/cbAudioCompat"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="AC-3 / MP2 自动软解（推荐）"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="MP2/AC3 等音频编码依赖设备自带解码器：若出现「有画面没声音」或直接黑屏，程序会自动关闭音频继续播放；也可以在解码器优先里改软解、或把渲染方式换成 TextureView 再试。解码器/渲染方式修改后需重新进入频道生效。"
+            android:text="直播源里常有 AC-3 / E-AC-3 / MP2 音轨：盒子即使带解码器也常常只支持直通，表现为有画面没声音且不报错。开启后识别到这类编码会自动切到软解内核（音频 FFmpeg 解码），几秒内出声；设备本身能正常解 AC-3 的可关闭。切换开关后重新进入频道生效。"
             android:textSize="11sp"
             android:textColor="@color/text_secondary" />
 
@@ -154,14 +164,14 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:buttonTint="@color/brand_cyan"
-            android:text="卡顿过多时自动换线路（默认关闭）"
+            android:text="持续卡顿自动换线路（推荐开启）"
             android:textColor="@color/text_primary"
             android:textSize="13sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="v1.9 起默认关闭：只要当前线路成功播放过就锁定它，抖动只在原线路重连，绝不自动跳台；只有起播一直连不上（20 秒无画面）才切下一条。开启后持续卡顿才允许换线路。"
+            android:text="起播连不上（20 秒无画面）会自动换线路；已出画面后，持续缓冲 8 秒或反复卡顿也会换到下一条线路。换线带冷却与熔断，不会两条线路来回跳。关掉后只做原线路重连，不换线。"
             android:textSize="11sp"
             android:textColor="@color/text_secondary" />
 

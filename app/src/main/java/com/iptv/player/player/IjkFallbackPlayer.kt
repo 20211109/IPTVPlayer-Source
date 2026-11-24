@@ -42,8 +42,13 @@ class IjkFallbackPlayer(
     /**
      * 起播。返回 false 表示内核不可用（例如 x86 设备没有对应 .so），
      * 调用方应直接回退到「无声播放」而不要再等待超时。
+     *
+     * @param softwareVideo true = 视频也走 FFmpeg 软解（mediacodec=0）。
+     *        少数盒子上 IJK 与 MediaCodec 组合会直接起不来，此时优先保住声音：
+     *        软解视频虽然更吃 CPU，但 AC-3/MP2 频道至少能正常出声。
+     *        音频始终由 FFmpeg 解码，不受该参数影响。
      */
-    fun play(url: String): Boolean {
+    fun play(url: String, softwareVideo: Boolean = false): Boolean {
         release()
         released = false
         return try {
@@ -91,8 +96,9 @@ class IjkFallbackPlayer(
             // 那时 player 还没创建，回调会被跳过；这里立即补一次绑定。
             attachDisplayIfReady()
 
-            // 视频硬解：mediacodec=1；音频不动，继续走 FFmpeg 软解（MP2/AC3 都能出声）
-            mp.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 1L)
+            // 视频解码：默认 MediaCodec 硬解；硬解起不来时退回 FFmpeg 软解。
+            // 音频不设 mediacodec，始终走 FFmpeg 软解 —— AC-3/E-AC-3/MP2 才能真正出声。
+            mp.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", if (softwareVideo) 0L else 1L)
             mp.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L)
             mp.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L)
             mp.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop", 1L)

@@ -23,9 +23,12 @@ class PlaybackSettings(context: Context) {
         const val KEY_MAX_RETRY = "max_retry"                  // 连续失败熔断阈值
         // 换 key：改为「默认开启」。老版本里该键已写入 false，换 key 才能让新默认对老用户生效。
         const val KEY_INSECURE_TLS = "insecure_tls_v2"         // 是否忽略证书校验（自签名源）
-        // 换 key：老版本用户 SharedPreferences 里已写入 true，改默认值对他们不生效。
-        // 换 key 后所有人回落到 v1.9 的新默认（关闭），避免观看中被自动切台。
-        const val KEY_AUTO_SWITCH = "auto_switch_on_stall_v2"  // 卡顿后是否自动换线路
+        // 换 key：默认值从「关闭」改为「开启」。
+        // 旧版本用 v2 键写入过 false，换 key 才能让新默认对老用户生效；
+        // 不想要换线的用户仍可在设置里手动关掉。
+        const val KEY_AUTO_SWITCH = "auto_switch_on_stall_v3"  // 持续卡顿后是否自动换线路
+        // AC-3 / MP2 等音轨自动交给软解内核（iptv-finder 源里这类编码很常见）
+        const val KEY_AUDIO_COMPAT = "audio_compat_v1"
 
         // 画面缩放 / 比例
         const val KEY_ZOOM_MODE = "zoom_mode"                  // fit / stretch / crop / scale
@@ -89,10 +92,24 @@ class PlaybackSettings(context: Context) {
         get() = sp.getInt(KEY_MAX_RETRY, DEF_MAX_RETRY)
         set(v) = sp.edit().putInt(KEY_MAX_RETRY, v).apply()
 
-    /** 卡顿过多时是否自动换线路（v1.9 起默认关闭：播放中锁台，原线路重连不跳台） */
+    /**
+     * 卡顿过多时是否自动换线路。
+     * 默认开启：iptv-finder 抓到的免费源里经常有一条线路带宽不足、另一条正常的情况，
+     * 一直守着卡顿线路重连只会让用户盯着转圈。开启后仍带冷却与「所有线路都试过」的熔断，
+     * 不会两条线路来回跳。
+     */
     var autoSwitchOnStall: Boolean
-        get() = sp.getBoolean(KEY_AUTO_SWITCH, false)
+        get() = sp.getBoolean(KEY_AUTO_SWITCH, true)
         set(v) = sp.edit().putBoolean(KEY_AUTO_SWITCH, v).apply()
+
+    /**
+     * AC-3 / E-AC-3 / MP2 / DTS 音轨自动交给软解内核（IJK + FFmpeg）。
+     * 默认开启：这类音轨在盒子上经常「有解码器但只支持直通」，表现为有画面没声音且不报错；
+     * 主动切软解是唯一直观的解决办法。设备本身能正常解 AC-3 的用户可以关掉。
+     */
+    var audioCompat: Boolean
+        get() = sp.getBoolean(KEY_AUDIO_COMPAT, true)
+        set(v) = sp.edit().putBoolean(KEY_AUDIO_COMPAT, v).apply()
 
     /**
      * 忽略 HTTPS 证书校验。
@@ -140,7 +157,8 @@ class PlaybackSettings(context: Context) {
             .putInt(KEY_MAX_RETRY, DEF_MAX_RETRY)
             .putBoolean(KEY_SHOW_STATS, false)
             .putBoolean(KEY_INSECURE_TLS, true)
-            .putBoolean(KEY_AUTO_SWITCH, false)
+            .putBoolean(KEY_AUTO_SWITCH, true)
+            .putBoolean(KEY_AUDIO_COMPAT, true)
             .putString(KEY_ZOOM_MODE, DEF_ZOOM_MODE)
             .putInt(KEY_ZOOM_SCALE, DEF_ZOOM_SCALE)
             .putString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY)

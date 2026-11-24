@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -30,9 +31,11 @@ import java.util.concurrent.TimeUnit
  * 播放管理器（v1.9 起采用「锁台优先」策略）：
  *
  * - 起播阶段（当前线路从未成功出过画面）连不上，才按顺序切到下一条线路。
- * - 一旦某条线路成功播放过，就锁定这条线路：之后无论卡顿还是网络抖动，
- *   都只在【原线路】上重连，绝不自动跳到下一条。看直播最怕的就是画面正看着
- *   突然被切走，一条 HLS 分片请求失败并不代表整条线路不可用。
+ * - 一旦某条线路成功播放过，就锁定这条线路：偶发错误、抖动只在【原线路】重连，
+ *   绝不因为一个分片失败就把画面切走。
+ * - 但「锁台」不等于永远不换：持续缓冲（硬卡死）或短时间内反复卡顿，
+ *   说明这条线路已经撑不住直播了，此时走 [switchToNextSourceOnStall] 换线，
+ *   并带冷却与「所有线路都试过」的熔断，避免两条线路来回跳。
  * - 自动切源的冷却判断必须显式处理「从未切换过」的初始状态，否则第一次错误
  *   会绕过冷却立刻切源。
  */
@@ -50,6 +53,8 @@ class PlayerManager(
     companion object {
         /** 起播失败时，两次换线路之间的最小间隔 */
         private const val SWITCH_ERROR_COOLDOWN_MS = 4000L
+        /** 卡顿换线的最小间隔：新线路刚起播又不稳时，先给它自己恢复的机会，避免连续跳线 */
+        private const val STALL_SWITCH_MIN_INTERVAL_MS = 12_000L
         /** 距上次重连超过该时长，视为新一轮观看，重置重连次数 */
         private const val RECONNECT_RESET_WINDOW_MS = 60_000L
         /** 分片 404 的计数窗口：窗口内连续出现才逐级升级恢复方式 */
@@ -82,11 +87,12 @@ class PlayerManager(
         /** 所有线路都试过仍失败时，最多重新尝试几轮：既不轻易放弃，也不会死循环 */
         private const val MAX_STARTUP_ROUNDS = 2
         /**
-         * 无声检测延迟：出画后等这么久再检查音频轨。
-         * Media3 遇到设备没有解码器的音频编码（典型 MP2）时，会把该音轨标记为不支持并
-         * 静默跳过——既不报错也不出声，只靠 onPlayerError 永远等不到，必须主动巡检。
+         * 音频巡检延迟：出画后等这么久再检查音频轨。
+         * Media3 遇到设备没有解码器的音频编码（AC-3/E-AC-3/MP2 等）时，会把该音轨标记为
+         * 不支持并静默跳过——既不报错也不出声，只靠 onPlayerError 永远等不到，必须主动巡检。
+         * 取 1.2 秒：既给 HLS 首段留出解析音轨的时间，又不会让用户听太久无声画面。
          */
-        private const val AUDIO_CHECK_DELAY_MS = 3_000L
+        private const val AUDIO_CHECK_DELAY_MS = 1_200L
     }
 
     val player: ExoPlayer
@@ -126,6 +132,17 @@ class PlayerManager(
     /** 刚换过线路后的观察期截止时间：期间不再因卡死换源，避免连续跳线 */
     private var freezeSwitchGraceUntilMs = 0L
 
+    /**
+     * 卡顿换线链：连续因卡顿换过的线路数量。
+     * 与 freezeSwitchChain 分开统计——卡顿触发的换线比「画面彻底定格」更频繁，
+     * 需要独立的计数与冷却，否则会和卡死看门狗互相清空计数。
+     */
+    private var stallSwitchChain = 0
+    /** 卡顿换线冷却截止时间（所有线路都卡过一遍后暂停一阵） */
+    private var stallSwitchCooldownUntilMs = 0L
+    /** 上次因卡顿换线的时间，用于防抖：换线后立刻又不稳时不要连续跳 */
+    private var lastStallSwitchMs = 0L
+
     /** 起播尝试轮次：所有线路按顺序试完一遍算一轮，用于限制「全线路重试」次数 */
     private var startupRounds = 0
     /** 当前频道是否已经因音频编码不支持（如 MP2）而回退为无声播放 */
@@ -140,6 +157,15 @@ class PlayerManager(
     private var audioCheckScheduled = false
     /** 当前线路是否已完成无声检测：只查一次，避免播放中途因瞬时轨道变化误切内核 */
     private var audioChecked = false
+    /** 音轨还没解析出来时的补查次数（部分 HLS 首段才带音轨信息） */
+    private var audioCheckRetries = 0
+    /** 上一次识别到的音频编码，用于发现「换码率后音轨变成 AC-3/MP2」的情况 */
+    private var lastAudioMime: String? = null
+    /**
+     * 音频兼容：识别到 AC-3/E-AC-3/MP2/DTS 时自动交给软解内核。
+     * 默认开启——iptv-finder 抓到的源里这类音轨很常见，不开就是「有画面没声音」。
+     */
+    var audioCompatEnabled = true
 
     /** 所有线路都卡住、自动换线已暂停时回调 */
     var onAllSourcesStuck: (() -> Unit)? = null
@@ -148,11 +174,12 @@ class PlayerManager(
     var onStartTimeoutSwitched: (() -> Unit)? = null
 
     /**
-     * 音频编码不支持（MP2/AC3 等老设备解码器缺失）而需要外部内核兜底时回调。
-     * 参数是当前线路，界面据此启动 IJK 内核（视频硬解 + 音频 FFmpeg 软解）。
+     * 音频编码不适合硬解（AC-3 / E-AC-3 / MP2 / DTS 等）而需要外部内核兜底时回调。
+     * 参数：当前线路 / 音频编码名称（AC-3、MP2…，用于状态提示）。
+     * 界面据此启动 IJK 内核（视频硬解 + 音频 FFmpeg 软解）。
      * 若界面没有接管（未注册回调），playerManager 会自动退化为无声播放。
      */
-    var onAudioFallback: ((Source) -> Unit)? = null
+    var onAudioFallback: ((Source, String) -> Unit)? = null
 
     /** 网络恢复监听：WiFi 断开重连、切网后立刻接上直播，不用等看门狗超时 */
     private var connectivityManager: android.net.ConnectivityManager? = null
@@ -160,6 +187,9 @@ class PlayerManager(
 
     /** 卡死且恢复无效、自动换线路时回调：(新线路序号, 线路总数) */
     var onFreezeSwitched: ((Int, Int) -> Unit)? = null
+
+    /** 持续卡顿导致自动换线路时回调：(新线路序号, 线路总数) */
+    var onStallSwitched: ((Int, Int) -> Unit)? = null
 
     private val freezeCheckRunnable = object : Runnable {
         override fun run() {
@@ -343,6 +373,29 @@ class PlayerManager(
                 }
             }
 
+            /**
+             * 音轨信息一出现就先看编码：AC-3 / MP2 频道不必等到「无声几秒」再切，
+             * 出画后立刻换到软解内核，用户几乎察觉不到中间态；
+             * 同时覆盖 HLS 切码率后音轨从 AAC 变成 AC-3 的情况。
+             */
+            override fun onTracksChanged(tracks: Tracks) {
+                if (suspended || audioCompatApplied || videoOnlyRequested || !audioCompatEnabled) return
+                val info = try {
+                    AudioCodecSupport.inspect(tracks)
+                } catch (t: Throwable) {
+                    return
+                }
+                val mime = info.mime ?: return
+                if (mime == lastAudioMime) return
+                lastAudioMime = mime
+                // 起播阶段的第一次轨道回调不处理：交给出画后的无声检测统一判断，
+                // 避免 Exo 还在起播就被停掉，造成「点台后黑屏一下」。
+                if (!hasEverPlayed) return
+                if (info.needsSoftwareDecode) {
+                    triggerAudioFallback(currentSource, info)
+                }
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 // 兜底内核接管期间 Exo 已停止，不再处理任何错误
                 if (suspended) return
@@ -370,15 +423,7 @@ class PlayerManager(
                 // 直接换源/换台也播不了，反而会黑屏。优先交给 IJK 兜底内核（音频 FFmpeg 软解），
                 // 界面未接管时才退化为关闭音频轨继续出画面。
                 if (!audioCompatApplied && isAudioDecodeError(error)) {
-                    audioCompatApplied = true
-                    applyAudioEnabled(false)
-                    val source = currentSource
-                    val fallback = onAudioFallback
-                    if (source != null && fallback != null) {
-                        fallback.invoke(source)
-                    } else {
-                        scheduleReconnect(now)
-                    }
+                    triggerAudioFallback(currentSource, currentAudioInfo())
                     return
                 }
 
@@ -496,6 +541,41 @@ class PlayerManager(
         }
     }
 
+    /** 读取当前音轨信息；播放器正在切换/释放时可能抛异常，一律返回 null */
+    private fun currentAudioInfo(): AudioCodecSupport.Info? = try {
+        AudioCodecSupport.inspect(player.currentTracks)
+    } catch (t: Throwable) {
+        null
+    }
+
+    /**
+     * 把当前线路交给软解内核（IJK：视频硬解 + 音频 FFmpeg 软解）。
+     *
+     * 进入前先关闭 Exo 的音频轨：软解内核启动需要一两秒，这段时间里 Exo 若继续
+     * 尝试解码会重复抛错，表现为状态栏一直在报错。
+     *
+     * @return true = 已接管；false = 之前已经接管过（避免重复启动内核）
+     */
+    private fun triggerAudioFallback(source: Source?, info: AudioCodecSupport.Info?): Boolean {
+        if (audioCompatApplied) return false
+        audioCompatApplied = true
+        applyAudioEnabled(false)
+        val label = info?.label?.takeIf { it.isNotBlank() && it != "未知" } ?: "音频"
+        val fallback = onAudioFallback
+        if (source != null && fallback != null) {
+            fallback.invoke(source, label)
+        } else {
+            // 界面没有接管兜底内核：保持无声播放，至少让画面留在屏幕上
+            scheduleReconnect(System.currentTimeMillis())
+        }
+        return true
+    }
+
+    /** 设置页「AC-3 / MP2 自动软解」开关，保存后立即生效 */
+    fun setAudioCompatEnabled(enabled: Boolean) {
+        audioCompatEnabled = enabled
+    }
+
     /** 设置页「仅视频」开关 */
     fun setAudioOutputEnabled(enabled: Boolean) {
         videoOnlyRequested = !enabled
@@ -577,6 +657,10 @@ class PlayerManager(
         freezeSwitchChain = 0
         stableSinceMs = 0L
         freezeSwitchCooldownUntilMs = 0L
+        // 卡顿换线的计数也要归零，否则上一个频道切过几次会影响新频道的判断
+        stallSwitchChain = 0
+        stallSwitchCooldownUntilMs = 0L
+        lastStallSwitchMs = 0L
         val ranked = rankedIndices(channel, excludeTried = false)
         if (ranked.isEmpty()) {
             onError?.invoke("该频道暂无线路", -1)
@@ -587,9 +671,11 @@ class PlayerManager(
     }
 
     /**
-     * 切到下一条未尝试线路。
+     * 切到下一条未尝试线路（起播阶段专用）。
      * 注意：只要当前线路已经成功播放过，这里一律返回 false（锁台），
-     * 卡顿检测、起播看门狗、错误处理三个入口都受这一条保护。
+     * 起播看门狗与错误处理受这一条保护。
+     * 播放中确实需要换线时走 [switchToNextSourceOnStall]（卡顿）或
+     * [switchToNextSourceManually]（用户主动），它们有各自的冷却与熔断。
      */
     fun switchToNextSource(force: Boolean = false): Boolean {
         val channel = currentChannel ?: return false
@@ -634,8 +720,56 @@ class PlayerManager(
         freezeTimestamps.clear()
         freezeSwitchChain = 0
         stableSinceMs = 0L
+        stallSwitchChain = 0
+        stallSwitchCooldownUntilMs = 0L
         freezeSwitchGraceUntilMs = System.currentTimeMillis() + FREEZE_SWITCH_GRACE_MS
         switchTo(next, C.TIME_UNSET)
+        return true
+    }
+
+    /**
+     * 卡顿自动换线：绕过「锁台」限制，但有独立的冷却与防乒乓机制。
+     *
+     * 为什么不能直接复用 [switchToNextSource]：那个入口在 hasEverPlayed=true 时一律返回 false，
+     * 所以设置里打开「卡顿自动换线路」也永远不生效——这正是「卡顿却不换线」的根因。
+     *
+     * 与卡死换线（[forceSwitchToNextSource]）的区别：
+     *  - 这里是「还能播，但一直缓冲/反复卡」，属于线路带宽不足，换线收益明显；
+     *  - 卡死换线是画面完全定格后的兜底。两者计数分开，互相不会清空对方的冷却。
+     */
+    fun switchToNextSourceOnStall(): Boolean {
+        if (suspended || givenUp) return false
+        val channel = currentChannel ?: return false
+        if (channel.sources.size <= 1) return false
+
+        val now = System.currentTimeMillis()
+        // 所有线路都因为卡顿被换过一遍：暂停一会儿，避免两条弱线路来回跳
+        if (now < stallSwitchCooldownUntilMs) return false
+        if (stallSwitchChain >= channel.sources.size) {
+            stallSwitchChain = 0
+            stallSwitchCooldownUntilMs = now + FREEZE_SWITCH_COOLDOWN_MS
+            onAllSourcesStuck?.invoke()
+            return false
+        }
+        // 防抖：刚换过线路就立刻又不稳时，先让新线路自己恢复，不要连续跳
+        if (lastStallSwitchMs > 0L && now - lastStallSwitchMs < STALL_SWITCH_MIN_INTERVAL_MS) {
+            return false
+        }
+
+        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
+        if (candidates.isEmpty()) return false
+        val next = candidates.firstOrNull { it !in triedIndices } ?: candidates.first()
+
+        lastStallSwitchMs = now
+        stallSwitchChain++
+        // 新线路起播期间不参与卡死判定，避免「刚切过去还在建缓冲就被判卡死」
+        freezeSwitchGraceUntilMs = now + FREEZE_SWITCH_GRACE_MS
+        freezeRecoveries = 0
+        freezeTimestamps.clear()
+        stableSinceMs = 0L
+        givenUp = false
+        switchTo(next, C.TIME_UNSET)
+        onStallSwitched?.invoke(next, channel.sources.size)
         return true
     }
 
@@ -664,6 +798,8 @@ class PlayerManager(
         mainHandler.removeCallbacks(audioCheckRunnable)
         audioCheckScheduled = false
         audioChecked = false
+        audioCheckRetries = 0
+        lastAudioMime = null
         hasEverPlayed = false
         reconnectAttempts = 0
         lastReconnectMs = 0L
@@ -706,11 +842,14 @@ class PlayerManager(
     }
 
     /**
-     * 无声检测：出画后确认确实存在「受支持」的音频轨。
+     * 音频巡检：出画后确认音轨是否真的能出声。
      *
-     * Media3 遇到设备没有解码器的音频编码（典型 MP2）时，会把该音轨标记为不支持并
-     * 静默跳过——既不抛错也不出声，只靠 onPlayerError 永远等不到。
-     * 这里主动发现后交给兜底内核（IJK，音频 FFmpeg 软解），避免用户一直看着无声画面。
+     * 两种情况都要接管：
+     *  1. 识别到 AC-3 / E-AC-3 / MP2 / DTS —— 盒子即使「有解码器」也常常只支持直通，
+     *     表现为画面正常、完全没有声音，而且不报任何错误，只靠 onPlayerError 永远等不到；
+     *  2. 没有任何受支持的音轨 —— 设备根本没有该编码的解码器，Exo 会静默跳过。
+     *
+     * 界面未注册兜底回调时，这里退化为「关闭音频轨继续出画面」，至少不会黑屏。
      */
     private fun checkAudioAvailability() {
         audioCheckScheduled = false
@@ -718,46 +857,25 @@ class PlayerManager(
         if (suspended || audioCompatApplied || videoOnlyRequested) return
         if (!hasEverPlayed) return
         val source = currentSource ?: return
-        audioChecked = true
 
-        val tracks = try {
-            player.currentTracks
-        } catch (t: Throwable) {
+        val info = currentAudioInfo() ?: return
+        if (!info.hasAnyAudioTrack) {
+            // 部分 HLS 的音轨信息要等第一个分片解析完才出现：补查几次，
+            // 不能因为「暂时没看到音轨」就直接判成无声。
+            if (audioCheckRetries < 3) {
+                audioCheckRetries++
+                audioCheckScheduled = true
+                mainHandler.removeCallbacks(audioCheckRunnable)
+                mainHandler.postDelayed(audioCheckRunnable, 800L)
+            }
             return
         }
 
-        var audioUsable = false
-        var mp2Audio = false
-        for (group in tracks.groups) {
-            if (group.type != C.TRACK_TYPE_AUDIO) continue
-            if (!group.isSupported) continue
-            audioUsable = true
-            // 设备即使「声称支持」MP2，也可能解出静音（部分电视芯片的通病）。
-            // 只要音轨是 MP2，就统一交给带 FFmpeg 的兜底内核，确保一定能出声。
-            for (i in 0 until group.length) {
-                val mime = try {
-                    group.getTrackFormat(i).sampleMimeType
-                } catch (t: Throwable) {
-                    null
-                }
-                if (mime == MimeTypes.AUDIO_MPEG_L2) {
-                    mp2Audio = true
-                    break
-                }
-            }
-            if (mp2Audio) break
-        }
-        if (audioUsable && !mp2Audio) return
-
-        // 没有可用音轨（缺解码器），或是 MP2 音轨：交给兜底内核（FFmpeg 软解）处理
-        audioCompatApplied = true
-        applyAudioEnabled(false)
-        val fallback = onAudioFallback
-        if (fallback != null) {
-            fallback.invoke(source)
-        } else {
-            // 没有兜底内核可用：保持无声播放，至少画面在线
-            scheduleReconnect(System.currentTimeMillis())
+        audioChecked = true
+        val needFallback = !info.hasUsableTrack ||
+            (audioCompatEnabled && info.needsSoftwareDecode)
+        if (needFallback) {
+            triggerAudioFallback(source, info)
         }
     }
 
@@ -819,7 +937,10 @@ class PlayerManager(
                 freezeRecoveries = 0
                 if (stableSinceMs == 0L) stableSinceMs = now
                 // 稳定播放够久，说明这条线路是好的，清空「连续换线」计数
-                if (now - stableSinceMs >= STABLE_PLAY_RESET_MS) freezeSwitchChain = 0
+                if (now - stableSinceMs >= STABLE_PLAY_RESET_MS) {
+                    freezeSwitchChain = 0
+                    stallSwitchChain = 0
+                }
             }
         }
 

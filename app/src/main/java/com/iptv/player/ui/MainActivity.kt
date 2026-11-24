@@ -956,12 +956,17 @@ class MainActivity : AppCompatActivity() {
         }
         pm.maxRetry = playSettings.maxRetry
         pm.setAudioOutputEnabled(playSettings.audioEnabled)
+        // AC-3 / MP2 音轨自动交给软解内核（iptv-finder 源里很常见）
+        pm.setAudioCompatEnabled(playSettings.audioCompat)
         lateinit var sd: StallDetector
         sd = StallDetector(
             onStall = stall@{
                 // 用户可关闭「卡顿自动换线路」，关掉后只在状态条提示，不打断观看
                 if (!playSettings.autoSwitchOnStall) return@stall
-                val switched = pm.switchToNextSource()
+                // 注意：这里必须走「卡顿换线」专用入口。
+                // 旧代码调用 switchToNextSource()，而该方法在已出过画面时会直接返回 false，
+                // 所以即使打开开关也永远不会换线 —— 这就是「卡顿不切线路」的根因。
+                val switched = pm.switchToNextSourceOnStall()
                 if (switched) {
                     sd.onSourceSwitched()
                     runOnUiThread { toast("持续卡顿，已切换到下一条线路") }
@@ -977,7 +982,9 @@ class MainActivity : AppCompatActivity() {
             },
             windowMs = playSettings.stallWindowS.coerceIn(5, 60) * 1000L,
             stallCountThreshold = playSettings.stallCount.coerceIn(2, 10),
-            cooldownMs = playSettings.stallCooldownS.coerceIn(3, 60) * 1000L
+            cooldownMs = playSettings.stallCooldownS.coerceIn(3, 60) * 1000L,
+            // 用户主动暂停时不算卡顿，避免暂停久了被自动换线
+            isPaused = { !pm.player.playWhenReady }
         )
         pm.player.addAnalyticsListener(sd)
         pm.onSourceChanged = { _, idx, total ->
@@ -993,10 +1000,10 @@ class MainActivity : AppCompatActivity() {
         pm.onStartTimeoutSwitched = {
             runOnUiThread { toast("这条线路无响应，已自动换线路") }
         }
-        // 设备缺少 MP2/AC3 等音频解码器时：临时切换到 IJK 兜底内核（视频硬解 + 音频软解），
-        // 保证 MP2 也能出声；兜底内核也起不来时再退化为无声播放。
-        pm.onAudioFallback = { source ->
-            runOnUiThread { startIjkFallback(source) }
+        // 设备缺少 AC-3 / MP2 等音频解码器时：临时切换到 IJK 兜底内核（视频硬解 + 音频软解），
+        // 保证这类频道一定出声；兜底内核也起不来时再退化为无声播放。
+        pm.onAudioFallback = { source, codec ->
+            runOnUiThread { startIjkFallback(source, codec) }
         }
         pm.onReconnecting = { attempt ->
             runOnUiThread {
@@ -1118,11 +1125,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 启动 IJK 兜底内核：视频走 MediaCodec 硬解，音频由 FFmpeg 软解，专门解决
-     * 设备缺少 MP2 解码器导致「有画面没声音」的问题。
-     * 启动成功则隐藏 Exo 的 PlayerView；失败或 12 秒超时则回退到 Exo 无声播放。
+     * 启动 IJK 兜底内核：视频默认 MediaCodec 硬解，音频由 FFmpeg 软解，
+     * 专门解决 AC-3 / E-AC-3 / MP2 音轨「有画面没声音」的问题。
+     *
+     * @param codecLabel 识别到的音频编码（AC-3、MP2…），仅用于状态提示
+     * @param attempt 0 = 首次（视频硬解）；1 = 重试（视频也软解，优先保住声音）
      */
-    private fun startIjkFallback(source: Source) {
+    private fun startIjkFallback(source: Source, codecLabel: String = "音频", attempt: Int = 0) {
         val pm = playerManager ?: return
         // 同一时间只保留一个兜底内核
         releaseIjkFallback()
@@ -1130,7 +1139,16 @@ class MainActivity : AppCompatActivity() {
         pm.setSuspended(true)
         playerViewRef?.visibility = View.GONE
         pbLoading.visibility = View.VISIBLE
-        setStatus("$currentLineLabel · 音频兼容内核启动中…", R.color.yellow)
+        // 编码名缺失时（例如解码失败路径拿不到轨道信息）避免出现「音频 音频」的重复文案
+        val audioDesc = if (codecLabel.isBlank() || codecLabel == "音频") "音频" else "$codecLabel 音频"
+        setStatus(
+            if (attempt == 0) {
+                "$currentLineLabel · $audioDesc，兼容内核启动中…"
+            } else {
+                "$currentLineLabel · $audioDesc，改用软解视频重试…"
+            },
+            R.color.yellow
+        )
 
         var handled = false
         var prepared = false
@@ -1142,8 +1160,20 @@ class MainActivity : AppCompatActivity() {
             playerViewRef?.visibility = View.VISIBLE
             pbLoading.visibility = View.GONE
             playerManager?.continueWithoutAudio()
-            toast("音频兼容播放失败，已转为无声播放")
+            toast("${audioDesc}软解失败（$reason），已转为无声播放")
             setStatus("$currentLineLabel · 音频编码不支持，已无声播放", R.color.yellow)
+        }
+
+        fun handleFailure(reason: String) {
+            if (handled) return
+            // 首次失败：再用「视频软解」重试一次。部分盒子上 IJK 与 MediaCodec 组合起不来，
+            // 但纯软解可以正常出声；对这类频道来说「有声音」比硬解更重要。
+            if (attempt == 0) {
+                handled = true
+                startIjkFallback(source, codecLabel, 1)
+                return
+            }
+            giveUp(reason)
         }
 
         val fallback = IjkFallbackPlayer(
@@ -1155,18 +1185,20 @@ class MainActivity : AppCompatActivity() {
                     ijkTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
                     ijkTimeoutRunnable = null
                     pbLoading.visibility = View.GONE
-                    setStatus("$currentLineLabel · 播放中（音频兼容）", R.color.green)
+                    setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 }
             },
-            onFailed = { reason -> giveUp(reason) }
+            onFailed = { reason -> handleFailure(reason) }
         )
         ijkFallback = fallback
         fallback.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
-        if (!fallback.play(source.url)) {
-            giveUp("启动失败")
+        val started = fallback.play(source.url, softwareVideo = attempt > 0)
+        if (!started) {
+            // play() 内部已回调 onFailed（重试或降级），这里兜住「没有任何回调」的极端情况
+            handleFailure("启动失败")
             return
         }
-        val timeout = Runnable { giveUp("启动超时") }
+        val timeout = Runnable { handleFailure("启动超时") }
         ijkTimeoutRunnable = timeout
         uiHandler.postDelayed(timeout, IJK_START_TIMEOUT_MS)
     }
@@ -1343,6 +1375,7 @@ class MainActivity : AppCompatActivity() {
         val spDecoder = view.findViewById<android.widget.Spinner>(R.id.spDecoder)
         val spRender = view.findViewById<android.widget.Spinner>(R.id.spRender)
         val cbAudio = view.findViewById<android.widget.CheckBox>(R.id.cbAudio)
+        val cbAudioCompat = view.findViewById<android.widget.CheckBox>(R.id.cbAudioCompat)
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
@@ -1363,6 +1396,7 @@ class MainActivity : AppCompatActivity() {
         spDecoder.setSelection(decoderValues.indexOf(playSettings.decoderPriority).coerceAtLeast(0))
         spRender.setSelection(renderValues.indexOf(playSettings.renderMode).coerceAtLeast(0))
         cbAudio.isChecked = playSettings.audioEnabled
+        cbAudioCompat.isChecked = playSettings.audioCompat
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("播放参数设置")
@@ -1393,6 +1427,7 @@ class MainActivity : AppCompatActivity() {
                 playSettings.renderMode =
                     renderValues[spRender.selectedItemPosition.coerceIn(0, renderValues.size - 1)]
                 playSettings.audioEnabled = cbAudio.isChecked
+                playSettings.audioCompat = cbAudioCompat.isChecked
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls
 
@@ -1402,6 +1437,7 @@ class MainActivity : AppCompatActivity() {
                     oldRender != playSettings.renderMode
                 if (needRebuild) {
                     releaseIjkFallback()
+                    stallDetector?.release()
                     playerManager?.release()
                     playerManager = null
                     stallDetector = null
@@ -1416,6 +1452,8 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         applyVideoLayout()
                     }
+                    // 音频兼容开关对下一条频道/下一次识别生效，不需要重建播放器
+                    playerManager?.setAudioCompatEnabled(playSettings.audioCompat)
                     // 音频开关立即生效
                     if (oldAudio != playSettings.audioEnabled) {
                         playerManager?.setAudioOutputEnabled(playSettings.audioEnabled)
@@ -1472,6 +1510,8 @@ class MainActivity : AppCompatActivity() {
         uiHandler.removeCallbacks(pickerLongPressRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
         releaseIjkFallback()
+        stallDetector?.release()
+        stallDetector = null
         playerManager?.release()
         playerManager = null
     }
