@@ -9,7 +9,6 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import java.util.concurrent.ExecutorService
@@ -59,11 +58,19 @@ class VlcFallbackPlayer(
     }
 
     private var surfaceView: SurfaceView? = null
-    private var libVlc: LibVLC? = null
     private var player: MediaPlayer? = null
 
     private var zoomMode = "fit"
     private var zoomScalePct = 100
+
+    /**
+     * 自动去黑边的结果（true = 让 VLC 自己裁切铺满）。
+     *
+     * 关键：这是通过 `setVideoScale(SURFACE_FILL)` 实现的，**不改 SurfaceView 尺寸**。
+     * 改尺寸会让 libvlc 重算 vout 并重建整条管线（2–5 秒），而黑边检测恰好发生在
+     * 起播 3.5 秒后 —— 那就是「切到软解后播 5 秒左右卡住」的真正原因。
+     */
+    private var autoFill = false
 
     private var currentUrl: String? = null
 
@@ -109,6 +116,8 @@ class VlcFallbackPlayer(
         released = false
         currentUrl = url
         lastRestartAt = 0L
+        // 新频道 = 新的卡死计数，别把上一条流的账算到这条头上
+        hardRestarts = 0
         beginSession(url)
         return true
     }
@@ -143,6 +152,18 @@ class VlcFallbackPlayer(
         layoutSurface()
         // 比例/缩放变化会改变 surface 尺寸，必须按新尺寸重建 vout 才能生效
         if (changed && player != null) scheduleRestart()
+    }
+
+    /**
+     * 自动去黑边：检测到对称黑边时让 VLC 裁切铺满，否则保持完整画面。
+     *
+     * 只改 ScaleType，不碰 SurfaceView 尺寸 —— 这是即时生效的，不会触发管线重建，
+     * 也就不会出现「播几秒突然卡住」。
+     */
+    fun setAutoFill(on: Boolean) {
+        if (autoFill == on) return
+        autoFill = on
+        if (player != null) applyScaleTypeAsync()
     }
 
     /**
@@ -189,10 +210,12 @@ class VlcFallbackPlayer(
             voutWidth = w
             voutHeight = h
 
-            // 直播场景的取舍：宁可多缓存一点也别丢帧跳帧，
-            // 「--no-drop-late-frames/--no-skip-frames」能避免弱源上出现马赛克跳帧。
-            val vlc = LibVLC(context, ArrayList(VLC_ARGS))
-            libVlc = vlc
+            // LibVLC 是全局单例（见 VlcCore）：这里只拿现成的实例，不再每次 new。
+            // 旧写法在这里 new LibVLC() 要 1–3 秒，且发生在主线程，直接表现为界面卡死。
+            val vlc = VlcCore.obtain(context) ?: run {
+                fail("兼容内核不可用（libvlc 初始化失败）")
+                return
+            }
             val mp = MediaPlayer(vlc)
             player = mp
 
@@ -217,6 +240,8 @@ class VlcFallbackPlayer(
                             if (!released && g == generation) {
                                 applyScaleTypeAsync()
                                 layoutSurface()
+                                // 出画面之后再开始盯「卡死」：起播阶段的缓冲不算
+                                startStallWatch()
                                 onPrepared()
                             }
                         }
@@ -229,8 +254,10 @@ class VlcFallbackPlayer(
             })
 
             val media = Media(vlc, Uri.parse(url))
-            // 视频优先硬解，不允许时自动退回软解；音频始终由 FFmpeg 解码（MP2/AC-3 靠这个）
-            media.setHWDecoderEnabled(true, true)
+            // 视频优先硬解，解不了自动退回软解；音频始终由 FFmpeg 解码（MP2/AC-3 靠这个）。
+            // 第二个参数是「强制」，旧代码写 true —— 强制硬解在不支持该规格的盒子上会
+            // 直接卡住解码器；改成 false 允许 VLC 自己回退到软解。
+            media.setHWDecoderEnabled(true, false)
             media.addOption(":network-caching=$NETWORK_CACHING_MS")
             media.addOption(":live-caching=$NETWORK_CACHING_MS")
             mp.setMedia(media)
@@ -280,14 +307,86 @@ class VlcFallbackPlayer(
 
     private fun applyScaleTypeAsync() {
         val mp = player ?: return
-        val scale = when (zoomMode) {
-            "crop" -> MediaPlayer.ScaleType.SURFACE_FILL
-            "stretch" -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+        val scale = when {
+            // 自动去黑边优先于 fit：用 VLC 自己的裁切，不改视图尺寸
+            autoFill && zoomMode == "fit" -> MediaPlayer.ScaleType.SURFACE_FILL
+            zoomMode == "crop" -> MediaPlayer.ScaleType.SURFACE_FILL
+            zoomMode == "stretch" -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
             else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
         }
         // 关键：不在主线程同步调用。vout 正在重建时这一步会阻塞，
         // 一旦卡在主线程就是「画面还在动、返回键按不动」。
         submitVout { runCatching { mp.setVideoScale(scale) } }
+    }
+
+    // ── 卡死看门狗 ────────────────────────────────────────────────
+    // VLC 有个很讨厌的行为：网络断了或者解码队列堵了，它既不报 Error 也不触发
+    // Buffering，只是让画面永远定在最后一帧。用户看到的就是「一直卡在那里一动不动」。
+    // 这里定期读一下播放时间戳，连续几次不前进就判定卡死，重建一次管线；
+    // 连续两次重建都没救，就交回界面降级成「无声播放」，别让用户一直盯着死画面。
+
+    private var stallWatchRunning = false
+    private var lastPosMs = -1L
+    private var frozenHits = 0
+    private var hardRestarts = 0
+
+    private val stallRunnable = object : Runnable {
+        override fun run() {
+            if (released || !stallWatchRunning) return
+            val mp = player ?: return
+            submitVout {
+                val pos = runCatching { mp.time }.getOrDefault(-1L)
+                val playing = runCatching { mp.isPlaying }.getOrDefault(false)
+                mainHandler.post {
+                    if (released || !stallWatchRunning || mp !== player) return@post
+                    when {
+                        // 暂停、还没起播、时间戳无效：不算卡死
+                        !playing || pos <= 0 -> {
+                            frozenHits = 0
+                            lastPosMs = if (pos > 0) pos else -1L
+                        }
+                        pos == lastPosMs -> {
+                            frozenHits++
+                            if (frozenHits >= STALL_HITS) {
+                                frozenHits = 0
+                                recoverFromStall()
+                                return@post
+                            }
+                        }
+                        else -> {
+                            frozenHits = 0
+                            lastPosMs = pos
+                        }
+                    }
+                    mainHandler.postDelayed(this, STALL_CHECK_MS)
+                }
+            }
+        }
+    }
+
+    private fun startStallWatch() {
+        if (stallWatchRunning) return
+        stallWatchRunning = true
+        lastPosMs = -1L
+        frozenHits = 0
+        mainHandler.removeCallbacks(stallRunnable)
+        mainHandler.postDelayed(stallRunnable, STALL_CHECK_MS)
+    }
+
+    private fun stopStallWatch() {
+        stallWatchRunning = false
+        mainHandler.removeCallbacks(stallRunnable)
+    }
+
+    private fun recoverFromStall() {
+        if (released) return
+        if (hardRestarts >= MAX_HARD_RESTARTS) {
+            fail("兼容内核画面卡住无法恢复")
+            return
+        }
+        hardRestarts++
+        onRestarting?.invoke()
+        restartNow()
     }
 
     private fun buildLayoutParams(): FrameLayout.LayoutParams {
@@ -347,11 +446,10 @@ class VlcFallbackPlayer(
     /** 立刻弃用当前实例：界面层马上换回来，原生对象交给后台线程慢慢收尸 */
     private fun abortCurrent() {
         generation++
+        stopStallWatch()
         val mp = player
-        val vlc = libVlc
         val sv = surfaceView
         player = null
-        libVlc = null
         surfaceView = null
         voutWidth = 0
         voutHeight = 0
@@ -367,14 +465,14 @@ class VlcFallbackPlayer(
                 // 忽略
             }
         }
-        if (mp == null && vlc == null) return
+        if (mp == null) return
         submitVout {
             // 顺序很关键：先摘监听，再 stop，最后 release。
-            // 这三步在部分机型上会阻塞数秒，所以绝不能放在主线程。
-            runCatching { mp?.setEventListener(null) }
-            runCatching { mp?.stop() }
-            runCatching { mp?.release() }
-            runCatching { vlc?.release() }
+            // 这几步在部分机型上会阻塞数秒，所以绝不能放在主线程。
+            // 注意：LibVLC 本身是全局单例，这里**不释放**它，只销毁 MediaPlayer。
+            runCatching { mp.setEventListener(null) }
+            runCatching { mp.stop() }
+            runCatching { mp.release() }
         }
     }
 
@@ -387,20 +485,22 @@ class VlcFallbackPlayer(
     }
 
     private companion object {
-        /** 直播缓存（毫秒）：太小会频繁缓冲，太大换台延迟明显，1200 在盒子上比较平衡 */
-        const val NETWORK_CACHING_MS = 1200
+        /** 直播缓存（毫秒）：1200 起播偏慢，1000 在盒子实测更跟手且不易断流 */
+        const val NETWORK_CACHING_MS = 1000
 
         /** 尺寸变化后延迟多久重建：留一帧给布局稳定 */
         const val RESTART_DELAY_MS = 420L
 
         /** 两次重建的最小间隔，防止尺寸抖动导致反复重建 */
-        const val RESTART_COOLDOWN_MS = 2500L
+        const val RESTART_COOLDOWN_MS = 3000L
 
-        val VLC_ARGS = listOf(
-            "--no-drop-late-frames",
-            "--no-skip-frames",
-            "--audio-time-stretch",
-            "--no-sub-autodetect-file"
-        )
+        /** 卡死探测间隔：2.5 秒看一次播放时间戳是否前进 */
+        const val STALL_CHECK_MS = 2500L
+
+        /** 连续多少次时间戳不动判定为卡死（2.5s × 3 ≈ 7.5 秒） */
+        const val STALL_HITS = 3
+
+        /** 最多重建几次去救卡死：两次还不行就降级为无声播放，别让画面永远定住 */
+        const val MAX_HARD_RESTARTS = 2
     }
 }

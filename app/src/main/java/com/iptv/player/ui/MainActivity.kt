@@ -40,6 +40,7 @@ import com.iptv.player.data.Source
 import com.iptv.player.data.SourceRepository
 import com.iptv.player.epg.EpgManager
 import com.iptv.player.player.BlackBarDetector
+import com.iptv.player.player.VlcCore
 import com.iptv.player.player.VlcFallbackPlayer
 import com.iptv.player.player.PlayerManager
 import com.iptv.player.player.StallDetector
@@ -246,6 +247,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSettings).setOnClickListener { showSettingsDialog() }
         btnFullscreen.setOnClickListener { toggleFullscreen() }
         btnSwitchLine.setOnClickListener { switchSourceManually() }
+
+        // 软解内核预热：libvlc 首次加载要 1–3 秒，放在主线程就是切台时整机卡死。
+        // 这里等首页稳定后在后台线程先把它建好，真正需要兜底时直接复用，几乎零等待。
+        if (playSettings.audioCompat) {
+            uiHandler.postDelayed({ VlcCore.warmUp(this) }, 2_500L)
+        }
         if (!isPhone()) btnFullscreen.visibility = View.GONE
         // 触摸设备支持左右滑动切换焦点频道；TV 用方向键移动焦点，不拦截触摸
         if (!isTv()) {
@@ -1140,8 +1147,27 @@ class MainActivity : AppCompatActivity() {
             else -> "scale"
         }
         val pct = if (autoActive && !autoCropStretch) autoPct else playSettings.zoomScalePct.coerceIn(50, 200)
-        // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置
-        fallbackPlayer?.applyLayout(mode, pct)
+        // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置。
+        //
+        // 关键：VLC 的「自动去黑边」必须走 ScaleType，**绝不能改 SurfaceView 尺寸**。
+        // 尺寸一变，libvlc 就认为窗口变了，要重建整条 vout 管线（2–5 秒），而黑边检测
+        // 恰好发生在起播 3.5 秒后 —— 这就是「切到软解后播 5 秒左右突然卡住」的成因。
+        // 另外 VLC 只能「整幅裁切」，没有部分放大，所以只在「标准/彻底」档才动手；
+        // 默认的「温和」档直接不处理，宁可留黑边也不裁掉画面。
+        fallbackPlayer?.let { fb ->
+            val vlcAutoFill = autoActive && !autoCropStretch &&
+                (playSettings.autoCropStrength == 1 || playSettings.autoCropStrength == 2)
+            fb.setAutoFill(vlcAutoFill)
+            val vlcMode = when {
+                vlcAutoFill -> "fit"                       // 由 SURFACE_FILL 负责裁切
+                autoActive && autoCropStretch -> "stretch" // 横向拉满，不裁画面
+                else -> playSettings.zoomMode
+            }
+            fb.applyLayout(
+                vlcMode,
+                if (autoActive && !autoCropStretch) autoPct else playSettings.zoomScalePct
+            )
+        }
         val pv = playerViewRef ?: return
         pv.resizeMode = when (mode) {
             "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
@@ -1280,6 +1306,13 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
+        // 软解内核只能「整幅裁切」，做不到只削掉一半黑边。
+        // 默认的「温和」档在 VLC 上直接跳过 —— 宁可留黑边，也不要为了几 pixel
+        // 把画面裁掉一圈（更不该为它去重建 VLC 管线）。
+        if (fallbackPlayer != null && playSettings.autoCropStrength == 0) {
+            autoCropDone = true
+            return
+        }
         // 拉伸档：一点画面都不裁，直接把容器改回整屏让视频拉伸填满
         if (playSettings.autoCropStrength == 3) {
             autoCropDone = true
@@ -1307,7 +1340,11 @@ class MainActivity : AppCompatActivity() {
         autoCropPct = pct
         autoCropStretch = false
         applyVideoLayout()
-        toast("检测到黑边，画面已放大到 $pct%")
+        // 软解内核下实际是「整幅裁切」，跟百分比不是一回事，别报一个假的百分比
+        toast(
+            if (fallbackPlayer != null) "检测到黑边，已裁切铺满"
+            else "检测到黑边，画面已放大到 $pct%"
+        )
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
