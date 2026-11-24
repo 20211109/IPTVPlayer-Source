@@ -1216,11 +1216,25 @@ class MainActivity : AppCompatActivity() {
         // 恰好发生在起播后几秒 —— 这就是「切到软解后播 5 秒左右突然卡住」的成因。
         fallbackPlayer?.let { fb ->
             val vlcCrop = autoActive && cropMode == CropMode.CROP
+            val vlcStretch = autoActive && cropMode == CropMode.STRETCH
             fb.setAutoFill(vlcCrop)
             val vlcMode = when {
                 vlcCrop -> "fit"                            // 由 SURFACE_FILL 负责裁切
-                autoActive && cropMode == CropMode.STRETCH -> "stretch"
+                vlcStretch -> "stretch"
                 else -> playSettings.zoomMode
+            }
+            // 拉伸铺满给 VLC 两重保障：SURFACE_FIT_SCREEN 在部分机型/部分 vout 上会被
+            // setVideoScale 悄悄拒掉（异常还被吞了），只靠它就时好时坏。再把「目标显示比例」
+            // 定成窗口比例（等价于告诉 VLC 这是变形宽银幕片源），best-fit 也必然铺满，
+            // 两条路结果一致，谁也不依赖谁。
+            if (vlcStretch) {
+                val hw = if (videoHost.width > 0) videoHost.width
+                else resources.displayMetrics.widthPixels
+                val hh = if (videoHost.height > 0) videoHost.height
+                else resources.displayMetrics.heightPixels
+                fb.setFillAspect(hw, hh)
+            } else {
+                fb.setFillAspect(0, 0)
             }
             fb.applyLayout(vlcMode, if (autoActive) 100 else playSettings.zoomScalePct)
         }
@@ -1263,7 +1277,7 @@ class MainActivity : AppCompatActivity() {
      * 轨道尺寸记在 lastVideoW/H 里，startVlcFallback 不会清它），
      * 所以手机上软解播放不再「一套一套规则」，不会再出现「Exo 铺满、软解留大黑边」。
      */
-    private fun applyAspectCrop(silent: Boolean = false) {
+    private fun applyAspectCrop(silent: Boolean = false, force: Boolean = false) {
         if (!playSettings.autoCrop) return
         if (playSettings.zoomMode != "fit") return
         val hostW = videoHost.width
@@ -1276,7 +1290,10 @@ class MainActivity : AppCompatActivity() {
         val videoAspect = lastVideoW.toFloat() / lastVideoH
         val hostAspect = hostW.toFloat() / hostH
         val want = decideCrop(hostAspect / videoAspect)
-        if (want == cropMode) return
+        // force = 「换了内核，把决策重新灌一遍」：cropMode 是界面侧的状态，
+        // 而新起的 VLC 实例 zoomMode 默认是 fit、autoFill 默认是 false。
+        // 只比较「决策有没有变」就会漏掉这个交接，表现为 Exo 铺满、1.5 秒后切软解突然留大黑边。
+        if (want == cropMode && !force) return
         cropMode = want
         if (want != CropMode.NONE) autoCropDone = true
         applyVideoLayout()
@@ -1475,8 +1492,9 @@ class MainActivity : AppCompatActivity() {
                 // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
                 setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 // 出画后再按轨道比例定一次画幅：软解频道以前完全不走比例判断，
-                // 手机上就一直留着左右黑边（这里补上，且与主内核同一套规则）
-                applyAspectCrop(silent = true)
+                // 手机上就一直留着左右黑边（这里补上，且与主内核同一套规则）。
+                // force：VLC 重建管线（转屏、卡死恢复）后是新实例，画幅要重灌一遍。
+                applyAspectCrop(silent = true, force = true)
                 // 软解路径出画更慢，多等一会儿再采样黑边
                 scheduleAutoCrop(3_500L)
             },
@@ -1491,10 +1509,12 @@ class MainActivity : AppCompatActivity() {
             }
         )
         fallbackPlayer = fallback
-        fallback.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
+        // 新实例的 zoomMode 是默认的 fit，必须先把「当前决策」原样灌进去，
+        // 再按轨道比例重新判一次（force：换了内核要重灌，不能因为「决策没变」就跳过）。
+        applyVideoLayout()
         // 切软解前 Exo 已经把轨道尺寸记下来了：这里立刻按同一套规则决定画幅，
         // 不用等出画后再采样，软解频道从第一帧起就和主内核一致。
-        applyAspectCrop(silent = true)
+        applyAspectCrop(silent = true, force = true)
         if (!fallback.play(source.url)) {
             // play() 内部已回调 onFailed，这里兜住「没有任何回调」的极端情况
             giveUp("启动失败")

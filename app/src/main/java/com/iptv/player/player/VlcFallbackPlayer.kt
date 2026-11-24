@@ -72,6 +72,23 @@ class VlcFallbackPlayer(
      */
     private var autoFill = false
 
+    /**
+     * 「拉伸铺满」时的目标显示比例（宽 × 高，0 = 不干预）。
+     *
+     * 为什么还要这条路：SURFACE_FIT_SCREEN（非等比铺满）由 setVideoScale 下发，
+     * 在部分机型上会被 vout 悄悄忽略，结果是「Exo 铺满、切到软解就变回两边黑边」。
+     * 而把显示比例直接定成窗口比例（相当于告诉 VLC「这是变形宽银幕片源」），
+     * 默认的 best-fit 就必然铺满整屏 —— 值在开播前定好，不需要改窗口尺寸，
+     * 因此也不会触发管线重建（不会再有「播 5 秒卡一下」）。
+     */
+    private var fillAspectW = 0
+    private var fillAspectH = 0
+
+    fun setFillAspect(w: Int, h: Int) {
+        fillAspectW = if (w > 0 && h > 0) w else 0
+        fillAspectH = if (w > 0 && h > 0) h else 0
+    }
+
     private var currentUrl: String? = null
 
     /** 硬解被判定为「播几秒就定格」之后置位：这一条流改成视频软解重开 */
@@ -170,7 +187,8 @@ class VlcFallbackPlayer(
      * 也就不会出现「播几秒突然卡住」。
      */
     fun setAutoFill(on: Boolean) {
-        if (autoFill == on) return
+        // 不做「值没变就 return」：换了内核实例后 autoFill 又被置回默认值，
+        // 只比较字段会漏掉「新实例还没被设置过」这一步。这里每次都下发，幂等且便宜。
         autoFill = on
         if (player != null) applyScaleTypeAsync()
     }
@@ -197,6 +215,18 @@ class VlcFallbackPlayer(
     }
 
     private fun pctSafe(v: Int): Int = v.coerceIn(50, 200)
+
+    /** 约分用：aspect-ratio 里 2340:1080 这种大数 VLC 也认，但小值更稳 */
+    private fun gcdOf(a: Int, b: Int): Int {
+        var x = abs(a)
+        var y = abs(b)
+        while (y != 0) {
+            val t = x % y
+            x = y
+            y = t
+        }
+        return if (x == 0) 1 else x
+    }
 
     /** 起一条全新的会话：先挂 surface，等它拿到真实尺寸后再初始化 VLC */
     private fun beginSession(url: String) {
@@ -262,6 +292,14 @@ class VlcFallbackPlayer(
                                 // 出画面之后再开始盯「卡死」：起播阶段的缓冲不算
                                 startStallWatch()
                                 onPrepared()
+                                // vout 刚 attach 时 setVideoScale 有可能被拒（异常还被吞掉），
+                                // 补两次：裁切/拉伸在不同机型上生效时机不一样，重试比「猜」便宜。
+                                mainHandler.postDelayed({
+                                    if (!released && g == generation) applyScaleTypeAsync()
+                                }, 400L)
+                                mainHandler.postDelayed({
+                                    if (!released && g == generation) applyScaleTypeAsync()
+                                }, 1200L)
                             }
                         }
 
@@ -288,6 +326,12 @@ class VlcFallbackPlayer(
             // 断流时让 VLC 自己重连，别把连接直接丢掉（它会表现为永久定格）
             media.addOption(":http-reconnect=true")
             if (forceSoftVideo) media.addOption(":avcodec-hw=none")
+            // 拉伸铺满：把显示比例定成窗口比例，best-fit 也必然铺满（见 fillAspectW 注释）。
+            // 必须在 setMedia 之前 addOption，且只影响「显示比例」，不动解码参数。
+            if (fillAspectW > 0 && fillAspectH > 0) {
+                val d = gcdOf(fillAspectW, fillAspectH)
+                media.addOption(":aspect-ratio=${fillAspectW / d}:${fillAspectH / d}")
+            }
             mp.setMedia(media)
             media.release()
             mp.play()
