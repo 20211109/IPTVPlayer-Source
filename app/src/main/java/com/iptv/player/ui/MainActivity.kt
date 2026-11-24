@@ -39,6 +39,7 @@ import com.iptv.player.data.M3uParser
 import com.iptv.player.data.Source
 import com.iptv.player.data.SourceRepository
 import com.iptv.player.epg.EpgManager
+import com.iptv.player.player.BlackBarDetector
 import com.iptv.player.player.VlcFallbackPlayer
 import com.iptv.player.player.PlayerManager
 import com.iptv.player.player.StallDetector
@@ -136,6 +137,22 @@ class MainActivity : AppCompatActivity() {
     private var fallbackPlayer: VlcFallbackPlayer? = null
     /** 兜底内核启动超时计时器 */
     private var fallbackTimeoutRunnable: Runnable? = null
+
+    /**
+     * 自动去黑边：检测到的放大倍数（100 = 不需要处理）。
+     * 只是运行时状态，不落 SharedPreferences —— 每次换台/换源都要按新画面重新判断。
+     */
+    private var autoCropPct = 100
+    /** 本轮采样次数（限制重试，避免暗场频道反复采样耗电） */
+    private var autoCropTries = 0
+    /** 上一次采样算出的倍数，用于「连续两次一致才动手」的确认 */
+    private var autoCropCandidate = 0
+    private var autoCropStableHits = 0
+    /** 已把采样任务排进消息队列（Handler.hasCallbacks 要 API 29，这里自己记） */
+    private var autoCropScheduled = false
+    /** 本轮已经判定完成（有黑边已放大 / 确认无黑边），避免播放器反复 READY 时重复采样 */
+    private var autoCropDone = false
+    private val autoCropRunnable = Runnable { detectBlackBars() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -820,6 +837,8 @@ class MainActivity : AppCompatActivity() {
         btnSwitchLine.visibility = if (channel.sources.size > 1) View.VISIBLE else View.GONE
         setStatus("正在连接…", R.color.yellow)
         showPlayerPage()
+        // 换台先清掉上一台的黑边判断结果，等出画后按新画面重新检测
+        resetAutoCrop()
         applyVideoLayout()
 
         if (playerManager == null) initPlayer()
@@ -1002,6 +1021,9 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 currentLineLabel = if (total > 1) "线路 ${idx + 1}/$total" else "直播"
                 setStatus("$currentLineLabel · 连接中…", R.color.yellow)
+                // 换了线路就可能是完全不同的画面比例：丢掉上一条线路的放大倍数，重新采样
+                resetAutoCrop()
+                scheduleAutoCrop(3_000L)
             }
         }
         // 起播看门狗（在 PlayerManager 内，随每次切源重新布防）自动换线后的提示
@@ -1051,6 +1073,8 @@ class MainActivity : AppCompatActivity() {
                 when (state) {
                     Player.STATE_READY -> {
                         setStatus("$currentLineLabel · 播放中", R.color.green)
+                        // 真正出画后再采样黑边：起播那一帧往往是全黑的，早了会误判
+                        scheduleAutoCrop(2_000L)
                     }
                     Player.STATE_BUFFERING -> {
                         setStatus("$currentLineLabel · 缓冲中…", R.color.yellow)
@@ -1094,10 +1118,15 @@ class MainActivity : AppCompatActivity() {
      * SurfaceView（老盒子默认）也能正确生效。
      */
     private fun applyVideoLayout() {
+        // 自动去黑边只在「适应屏幕」时接管：用户手动选了裁切/拉伸/自定义缩放，就以用户为准，
+        // 否则会出现「我明明选了裁切，它又给我改回去」的怪异行为。
+        val autoPct = autoCropPct.coerceIn(100, 175)
+        val autoActive = autoPct > 102 && playSettings.zoomMode == "fit"
+        val mode = if (autoActive) "scale" else playSettings.zoomMode
+        val pct = if (autoActive) autoPct else playSettings.zoomScalePct.coerceIn(50, 200)
         // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置
-        fallbackPlayer?.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
+        fallbackPlayer?.applyLayout(mode, pct)
         val pv = playerViewRef ?: return
-        val mode = playSettings.zoomMode
         pv.resizeMode = when (mode) {
             "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             "crop" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -1105,16 +1134,16 @@ class MainActivity : AppCompatActivity() {
         }
         pv.post {
             val hostW = if (videoHost.width > 0) videoHost.width
-                else resources.displayMetrics.widthPixels
+            else resources.displayMetrics.widthPixels
             val hostH = if (videoHost.height > 0) videoHost.height
-                else resources.displayMetrics.heightPixels
+            else resources.displayMetrics.heightPixels
             val lp = pv.layoutParams as? FrameLayout.LayoutParams
                 ?: FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
             if (mode == "scale" && hostW > 0 && hostH > 0) {
-                val scale = playSettings.zoomScalePct.coerceIn(50, 200) / 100f
+                val scale = pct / 100f
                 lp.width = (hostW * scale).toInt()
                 lp.height = (hostH * scale).toInt()
             } else {
@@ -1126,14 +1155,127 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 自动去黑边：起播稳定后采样画面，检测到对称黑边就把画面整体放大到刚好盖住。
+     *
+     * 为什么不用「按频道记住比例」：一个频道通常有多条线路，比例却按频道存。
+     * 换到一条本来就铺满的线路时，记忆值会把正常画面裁掉。
+     * 这里每次起播/换源都重新采样一次，没有记忆，也就没有「换源后被误裁」的问题。
+     *
+     * 三条安全线：只在「适应屏幕」下接管、连续两次采样一致才动手、采样失败静默放弃。
+     */
+    private fun resetAutoCrop() {
+        uiHandler.removeCallbacks(autoCropRunnable)
+        autoCropScheduled = false
+        autoCropDone = false
+        autoCropTries = 0
+        autoCropCandidate = 0
+        autoCropStableHits = 0
+        if (autoCropPct != 100) {
+            autoCropPct = 100
+            applyVideoLayout()
+        }
+    }
+
+    /** @param delayMs 起播后多久开始采样：VLC 兜底重建管线较慢，要给足时间 */
+    private fun scheduleAutoCrop(delayMs: Long) {
+        if (!playSettings.autoCrop) return
+        // 用户手动选过裁切/拉伸/自定义缩放，就完全以用户为准
+        if (playSettings.zoomMode != "fit") return
+        if (autoCropScheduled || autoCropDone) return
+        autoCropTries = 0
+        autoCropCandidate = 0
+        autoCropStableHits = 0
+        autoCropScheduled = true
+        uiHandler.postDelayed(autoCropRunnable, delayMs)
+    }
+
+    private fun detectBlackBars() {
+        autoCropScheduled = false
+        if (!playSettings.autoCrop || playSettings.zoomMode != "fit") return
+        if (isFinishing || isDestroyed) return
+        if (pagePlayer.visibility != View.VISIBLE) return
+        if (videoHost.width <= 0 || videoHost.height <= 0) {
+            retryAutoCrop()
+            return
+        }
+        // 竖屏时黑边在上下、横屏在左右，两者完全不是一回事：等转成横屏形态再判断
+        if (videoHost.width <= videoHost.height) {
+            retryAutoCrop()
+            return
+        }
+        val surface: View? = fallbackPlayer?.videoSurface() ?: playerViewRef?.videoSurfaceView
+        if (surface == null) {
+            retryAutoCrop()
+            return
+        }
+        // TextureView 可以直接 getBitmap；SurfaceView 走 PixelCopy（API 24+）
+        val isTexture = fallbackPlayer == null && playSettings.renderMode == "texture"
+        BlackBarDetector.capture(surface, isTexture) { bmp ->
+            uiHandler.post { onBlackBarSample(bmp) }
+        }
+    }
+
+    private fun retryAutoCrop() {
+        if (autoCropTries >= MAX_AUTO_CROP_TRIES) {
+            // 采样一直不成功（整屏黑、设备不支持拷贝）：本轮收工，等下次换台再试
+            autoCropDone = true
+            return
+        }
+        autoCropTries++
+        if (!playSettings.autoCrop || playSettings.zoomMode != "fit") return
+        if (autoCropScheduled) return
+        autoCropScheduled = true
+        uiHandler.postDelayed(autoCropRunnable, AUTO_CROP_RETRY_MS)
+    }
+
+    private fun onBlackBarSample(bmp: android.graphics.Bitmap?) {
+        if (isFinishing || isDestroyed) return
+        val insets = bmp?.let { BlackBarDetector.analyze(it) }
+        if (insets == null) {
+            // 画面全黑（还在缓冲）、暗场、或这台设备不支持采样：这一轮放弃，稍后再看
+            retryAutoCrop()
+            return
+        }
+        val pct = BlackBarDetector.requiredScalePct(insets)
+        if (pct <= 102) {
+            // 这条源本来就没黑边（换源后很常见）：把上一轮可能存在的放大撤掉
+            autoCropDone = true
+            if (autoCropPct != 100) {
+                autoCropPct = 100
+                applyVideoLayout()
+            }
+            return
+        }
+        // 连续两次算出同一个值才应用：切源瞬间和暗场可能摸到一帧假黑边
+        if (pct == autoCropCandidate) {
+            autoCropStableHits++
+        } else {
+            autoCropCandidate = pct
+            autoCropStableHits = 1
+        }
+        if (autoCropStableHits < 2) {
+            retryAutoCrop()
+            return
+        }
+        autoCropDone = true
+        if (pct == autoCropPct) return
+        autoCropPct = pct
+        applyVideoLayout()
+        toast("检测到黑边，画面已放大到 $pct%")
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸。
         // 兜底内核（VLC）要额外告诉它「surface 尺寸变了」——它得按新尺寸重建 vout，
         // 否则画面会按竖屏的窗口尺寸画在左上角（旧版本的横屏 bug）。
         if (pagePlayer.visibility == View.VISIBLE) {
+            // 横竖屏切换后黑边的位置和比例完全不同，上一次的放大倍数作废，按新尺寸重新检测
+            resetAutoCrop()
             applyVideoLayout()
             fallbackPlayer?.onHostResized()
+            scheduleAutoCrop(2_200L)
         }
     }
 
@@ -1147,6 +1289,8 @@ class MainActivity : AppCompatActivity() {
         val pm = playerManager ?: return
         // 同一时间只保留一个兜底内核
         releaseVlcFallback()
+        // 换了内核就等于换了渲染路径，黑边判断结果作废，出画后重测
+        resetAutoCrop()
         // 必须先停掉 Exo：硬解码器实例有限，Exo 不释放 VLC 就起不来
         pm.setSuspended(true)
         playerViewRef?.visibility = View.GONE
@@ -1180,6 +1324,8 @@ class MainActivity : AppCompatActivity() {
                 pbLoading.visibility = View.GONE
                 // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
                 setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
+                // 软解路径出画更慢，多等一会儿再采样黑边
+                scheduleAutoCrop(3_500L)
             },
             onFailed = { reason -> giveUp(reason) },
             // 横竖屏切换 / 画面比例变化时 VLC 要按新尺寸重建视频输出：
@@ -1303,6 +1449,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun closePlayer() {
         uiHandler.removeCallbacks(pickerLongPressRunnable)
+        // 退出播放就不再需要黑边采样，顺便把放大撤掉
+        resetAutoCrop()
         pickerDialog?.dismiss()
         pickerDialog = null
         pbLoading.visibility = View.GONE
@@ -1397,6 +1545,7 @@ class MainActivity : AppCompatActivity() {
         val spRender = view.findViewById<android.widget.Spinner>(R.id.spRender)
         val cbAudio = view.findViewById<android.widget.CheckBox>(R.id.cbAudio)
         val cbAudioCompat = view.findViewById<android.widget.CheckBox>(R.id.cbAudioCompat)
+        val cbAutoCrop = view.findViewById<android.widget.CheckBox>(R.id.cbAutoCrop)
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
@@ -1420,6 +1569,7 @@ class MainActivity : AppCompatActivity() {
         spRender.setSelection(renderValues.indexOf(playSettings.renderMode).coerceAtLeast(0))
         cbAudio.isChecked = playSettings.audioEnabled
         cbAudioCompat.isChecked = playSettings.audioCompat
+        cbAutoCrop.isChecked = playSettings.autoCrop
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("播放参数设置")
@@ -1432,6 +1582,7 @@ class MainActivity : AppCompatActivity() {
                 val oldDecoder = playSettings.decoderPriority
                 val oldRender = playSettings.renderMode
                 val oldAudio = playSettings.audioEnabled
+                val oldAutoCrop = playSettings.autoCrop
                 // 这一组只影响「播放引擎怎么建」与「卡顿检测策略」，
                 // 全部在 PlayerManager / StallDetector 构造时读取，改完必须重建才生效
                 val oldEngine = listOf(
@@ -1458,6 +1609,7 @@ class MainActivity : AppCompatActivity() {
                     renderValues[spRender.selectedItemPosition.coerceIn(0, renderValues.size - 1)]
                 playSettings.audioEnabled = cbAudio.isChecked
                 playSettings.audioCompat = cbAudioCompat.isChecked
+                playSettings.autoCrop = cbAutoCrop.isChecked
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls
                 statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
@@ -1487,10 +1639,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     // 画面比例/缩放可以立即生效，不打断播放
-                    if (oldZoomMode != playSettings.zoomMode ||
+                    val zoomChanged = oldZoomMode != playSettings.zoomMode ||
                         oldZoomScale != playSettings.zoomScalePct
-                    ) {
+                    if (zoomChanged || oldAutoCrop != playSettings.autoCrop) {
+                        // 比例或开关变了：先撤掉上一轮自动放大，再按新设置重排；
+                        // 开关重新打开时立刻对当前画面采样一次
+                        resetAutoCrop()
                         applyVideoLayout()
+                        if (playSettings.autoCrop && playSettings.zoomMode == "fit") {
+                            scheduleAutoCrop(800L)
+                        }
                     }
                     // 音频兼容开关对下一条频道/下一次识别生效，不需要重建播放器
                     playerManager?.setAudioCompatEnabled(playSettings.audioCompat)
@@ -1683,3 +1841,7 @@ class MainActivity : AppCompatActivity() {
 private const val PICKER_LONG_PRESS_MS = 600L
 /** VLC 兜底内核启动超时：超时视为不可用，回退到 Exo 无声播放 */
 private const val FALLBACK_START_TIMEOUT_MS = 12_000L
+/** 自动去黑边：两轮采样之间的间隔（连续两次结果一致才应用） */
+private const val AUTO_CROP_RETRY_MS = 1_300L
+/** 自动去黑边：单轮最多采样几次（缓冲时间长、暗场时不要无限追着看） */
+private const val MAX_AUTO_CROP_TRIES = 6

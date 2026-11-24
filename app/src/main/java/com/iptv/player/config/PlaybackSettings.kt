@@ -29,6 +29,8 @@ class PlaybackSettings(context: Context) {
         const val KEY_AUTO_SWITCH = "auto_switch_on_stall_v3"  // 持续卡顿后是否自动换线路
         // AC-3 / MP2 等音轨自动交给软解内核（iptv-finder 源里这类编码很常见）
         const val KEY_AUDIO_COMPAT = "audio_compat_v1"
+        // 检测到对称黑边时自动放大画面直到填满（换台/换源会重新检测）
+        const val KEY_AUTO_CROP = "auto_crop_v1"
 
         // 画面缩放 / 比例
         const val KEY_ZOOM_MODE = "zoom_mode"                  // fit / stretch / crop / scale
@@ -112,6 +114,16 @@ class PlaybackSettings(context: Context) {
         set(v) = sp.edit().putBoolean(KEY_AUDIO_COMPAT, v).apply()
 
     /**
+     * 自动去黑边：起播后采样画面四周，检测到对称黑边就整体放大到刚好盖住。
+     *
+     * 默认开启。之所以不像「按频道记忆比例」那样存下来，是因为换个线路后画面比例可能完全不同：
+     * 记忆会把「本来就没黑边」的源也裁掉，而每次起播重新采样不会出现这个问题。
+     */
+    var autoCrop: Boolean
+        get() = sp.getBoolean(KEY_AUTO_CROP, true)
+        set(v) = sp.edit().putBoolean(KEY_AUTO_CROP, v).apply()
+
+    /**
      * 忽略 HTTPS 证书校验。
      * 默认开启：IPTV 源大量使用自签名/过期证书，关着会让整条线路直接拉流失败（黑屏），
      * 对普通用户来说「能看」优先于严格校验；需要严格校验的用户可以自己关掉。
@@ -159,6 +171,7 @@ class PlaybackSettings(context: Context) {
             .putBoolean(KEY_INSECURE_TLS, true)
             .putBoolean(KEY_AUTO_SWITCH, true)
             .putBoolean(KEY_AUDIO_COMPAT, true)
+            .putBoolean(KEY_AUTO_CROP, true)
             .putString(KEY_ZOOM_MODE, DEF_ZOOM_MODE)
             .putInt(KEY_ZOOM_SCALE, DEF_ZOOM_SCALE)
             .putString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY)

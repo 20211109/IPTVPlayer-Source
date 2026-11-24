@@ -114,6 +114,12 @@ class VlcFallbackPlayer(
     }
 
     /** 暂停/继续；返回切换后的状态（true = 正在播放） */
+    /**
+     * 当前出画面用的 SurfaceView：界面侧做黑边采样时要用它（PixelCopy 只能拷贝 SurfaceView）。
+     * 重建管线期间会短暂为 null，调用方按「这轮跳过」处理即可。
+     */
+    fun videoSurface(): SurfaceView? = surfaceView
+
     fun togglePlayPause(): Boolean {
         val mp = player ?: return false
         return try {

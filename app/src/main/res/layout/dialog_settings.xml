@@ -117,6 +117,25 @@
             <TextView android:id="@+id/vZoomScale" style="@style/SettingValue" />
         </LinearLayout>
 
+        <!-- 自动去黑边 -->
+        <CheckBox
+            android:id="@+id/cbAutoCrop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="自动去黑边（检测到就放大铺满）"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="每次起播、换台、换线路都会重新看一遍画面四周：确认为左右或上下对称的黑边，就把画面放大到刚好盖住（4:3 老频道典型为 110%–133%）。换到本来就没黑边的线路会自动恢复，不会误裁。选「裁切铺满/拉伸铺满/自定义缩放」时此项不生效。"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary" />
+
         <!-- 解码器优先策略 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="解码器优先" />
