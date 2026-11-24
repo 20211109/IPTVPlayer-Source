@@ -157,6 +157,17 @@ class MainActivity : AppCompatActivity() {
     private var autoCropDone = false
     private val autoCropRunnable = Runnable { detectBlackBars() }
 
+    /**
+     * 当前视频的显示尺寸（已按像素宽高比折算），来自轨道信息。
+     *
+     * 为什么需要它：4:3 老频道在 16:9 屏上左右留黑，这是**比例**问题，不是像素问题。
+     * Exo 的做法是把 SurfaceView 本身按 4:3 缩小居中，所以对 SurfaceView 做像素采样
+     * 只能拿到纯视频内容、根本看不到黑边 —— 这就是「去黑边好像没作用」的根因。
+     * 拿到 (宽, 高) 就能直接算出要放大多少，既准又即时。
+     */
+    private var lastVideoW = 0
+    private var lastVideoH = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -853,7 +864,10 @@ class MainActivity : AppCompatActivity() {
         btnSwitchLine.visibility = if (channel.sources.size > 1) View.VISIBLE else View.GONE
         setStatus("正在连接…", R.color.yellow)
         showPlayerPage()
-        // 换台先清掉上一台的黑边判断结果，等出画后按新画面重新检测
+        // 换台先清掉上一台的黑边判断结果，等出画后按新画面重新判断
+        // 视频尺寸也要清：上一台是 4:3、这一台是 16:9 时，留着旧值会先错放大一次
+        lastVideoW = 0
+        lastVideoH = 0
         resetAutoCrop()
         applyVideoLayout()
 
@@ -1039,9 +1053,21 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 currentLineLabel = if (total > 1) "线路 ${idx + 1}/$total" else "直播"
                 setStatus("$currentLineLabel · 连接中…", R.color.yellow)
-                // 换了线路就可能是完全不同的画面比例：丢掉上一条线路的放大倍数，重新采样
+                // 换了线路就可能是完全不同的画面比例：丢掉上一条线路的放大倍数与视频尺寸
+                lastVideoW = 0
+                lastVideoH = 0
                 resetAutoCrop()
                 scheduleAutoCrop(3_000L)
+            }
+        }
+        // 视频显示尺寸（已折算像素宽高比）：判断黑边的第一手依据。
+        // 4:3 老频道在 16:9 屏上必然左右留黑，这个信息从轨道里就能拿到，
+        // 比采样像素可靠得多 —— Exo 是把 SurfaceView 按比例缩小，采不到黑边。
+        pm.onVideoSize = { vw, vh ->
+            runOnUiThread {
+                lastVideoW = vw
+                lastVideoH = vh
+                applyAspectCrop()
             }
         }
         // 起播看门狗（在 PlayerManager 内，随每次切源重新布防）自动换线后的提示
@@ -1198,11 +1224,69 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 按「视频比例 vs 屏幕比例」算出需要放大多少（100 = 不用放大）。
+     *
+     * 这是判断黑边的主依据：4:3 老频道在 16:9 屏上左右留黑属于**比例问题**，
+     * 从轨道宽高比就能算出来，又准又即时。像素采样只能补上「源端把黑边烤进画面」那种。
+     */
+    private fun aspectNeededPct(hostW: Int, hostH: Int): Int {
+        if (lastVideoW <= 0 || lastVideoH <= 0) return 100
+        if (hostW <= 0 || hostH <= 0) return 100
+        val hostAspect = hostW.toFloat() / hostH
+        val videoAspect = lastVideoW.toFloat() / lastVideoH
+        return when {
+            // 视频比屏幕窄（4:3 之类）→ 左右黑边，放大到宽度铺满
+            videoAspect < hostAspect - 0.02f -> (hostAspect / videoAspect * 100f).toInt()
+            // 视频比屏幕宽（宽银幕）→ 上下黑边，放大到高度铺满
+            videoAspect > hostAspect + 0.02f -> (videoAspect / hostAspect * 100f).toInt()
+            else -> 100
+        }
+    }
+
+    /**
+     * 按比例判断黑边并应用放大。
+     * 只在「适应屏幕」+ 开关打开 + 主内核（Exo）时接管；软解内核走像素采样。
+     */
+    private fun applyAspectCrop() {
+        if (!playSettings.autoCrop) return
+        if (playSettings.zoomMode != "fit") return
+        if (fallbackPlayer != null) return
+        if (autoCropStretch) return
+        val hostW = videoHost.width
+        val hostH = videoHost.height
+        if (hostW <= 0 || hostH <= 0) return
+        // 竖屏时黑边在上下、横屏在左右，两回事：只按横屏形态算，转屏后会重算
+        if (hostW <= hostH) return
+
+        val needed = aspectNeededPct(hostW, hostH)
+        val videoAspect = if (lastVideoH > 0) lastVideoW.toFloat() / lastVideoH else 0f
+        if (needed <= 102) {
+            // 比例一致：撤掉之前可能存在的放大，再让像素采样去找「烤进画面」的黑边
+            if (autoCropPct != 100) {
+                autoCropPct = 100
+                applyVideoLayout()
+            }
+            return
+        }
+        val pct = cropStrengthPct(needed.coerceAtMost(175))
+        autoCropDone = true
+        if (pct == autoCropPct) return
+        // 已经放大过、这次只差 3% 以内：不动，避免 HLS 切码率时来回缩放闪一下
+        if (autoCropPct > 102 && kotlin.math.abs(pct - autoCropPct) < 3) return
+        autoCropPct = pct
+        applyVideoLayout()
+        toast("画面比例 ${fmtAspect(videoAspect)}，已放大到 $pct%")
+    }
+
+    private fun fmtAspect(a: Float): String =
+        if (a < 1.4f) "4:3" else if (a < 1.6f) "3:2" else if (a < 1.9f) "16:9" else "宽银幕"
+
+    /**
      * 自动去黑边：起播稳定后采样画面，检测到对称黑边就把画面整体放大到刚好盖住。
      *
      * 为什么不用「按频道记住比例」：一个频道通常有多条线路，比例却按频道存。
      * 换到一条本来就铺满的线路时，记忆值会把正常画面裁掉。
-     * 这里每次起播/换源都重新采样一次，没有记忆，也就没有「换源后被误裁」的问题。
+     * 这里每次起播/换源都重新判断一次，没有记忆，也就没有「换源后被误裁」的问题。
      *
      * 三条安全线：只在「适应屏幕」下接管、连续两次采样一致才动手、采样失败静默放弃。
      */
@@ -1245,6 +1329,12 @@ class MainActivity : AppCompatActivity() {
         // 竖屏时黑边在上下、横屏在左右，两者完全不是一回事：等转成横屏形态再判断
         if (videoHost.width <= videoHost.height) {
             retryAutoCrop()
+            return
+        }
+        // 比例本身就不对（4:3 之类）：applyAspectCrop 已经处理过了，
+        // 这里必须收手，否则「没检测到黑边」的结论会把刚应用的放大又撤掉。
+        if (fallbackPlayer == null && aspectNeededPct(videoHost.width, videoHost.height) > 102) {
+            autoCropDone = true
             return
         }
         val surface: View? = fallbackPlayer?.videoSurface() ?: playerViewRef?.videoSurfaceView
@@ -1311,6 +1401,7 @@ class MainActivity : AppCompatActivity() {
         // 把画面裁掉一圈（更不该为它去重建 VLC 管线）。
         if (fallbackPlayer != null && playSettings.autoCropStrength == 0) {
             autoCropDone = true
+            toast("软解频道只能整幅裁切，要去黑边请把强度改成「标准」")
             return
         }
         // 拉伸档：一点画面都不裁，直接把容器改回整屏让视频拉伸填满
@@ -1353,9 +1444,11 @@ class MainActivity : AppCompatActivity() {
         // 兜底内核（VLC）要额外告诉它「surface 尺寸变了」——它得按新尺寸重建 vout，
         // 否则画面会按竖屏的窗口尺寸画在左上角（旧版本的横屏 bug）。
         if (pagePlayer.visibility == View.VISIBLE) {
-            // 横竖屏切换后黑边的位置和比例完全不同，上一次的放大倍数作废，按新尺寸重新检测
+            // 横竖屏切换后黑边的位置和比例完全不同，上一次的放大倍数作废，按新尺寸重新计算
             resetAutoCrop()
             applyVideoLayout()
+            // 视频尺寸没变，比例结论仍然有效：这里直接用已知的 (lastVideoW, lastVideoH) 重算
+            applyAspectCrop()
             fallbackPlayer?.onHostResized()
             scheduleAutoCrop(2_200L)
         }
@@ -1742,10 +1835,11 @@ class MainActivity : AppCompatActivity() {
                         oldCropStrength != playSettings.autoCropStrength
                     ) {
                         // 比例或开关变了：先撤掉上一轮自动放大，再按新设置重排；
-                        // 开关重新打开时立刻对当前画面采样一次
+                        // 开关重新打开时立刻按视频比例判一次，像素采样作为补充
                         resetAutoCrop()
                         applyVideoLayout()
                         if (playSettings.autoCrop && playSettings.zoomMode == "fit") {
+                            applyAspectCrop()
                             scheduleAutoCrop(800L)
                         }
                     }

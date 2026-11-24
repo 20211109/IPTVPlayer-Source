@@ -74,6 +74,11 @@ class VlcFallbackPlayer(
 
     private var currentUrl: String? = null
 
+    /** 硬解被判定为「播几秒就定格」之后置位：这一条流改成视频软解重开 */
+    private var forceSoftVideo = false
+    /** 卡死后先做「不重建」的轻量恢复（重新 play），失败才动重建 */
+    private var softRecoverTried = false
+
     /** 已释放或已失败：所有异步回调都要立刻失效，避免释放后仍回调界面 */
     private var released = false
 
@@ -118,6 +123,8 @@ class VlcFallbackPlayer(
         lastRestartAt = 0L
         // 新频道 = 新的卡死计数，别把上一条流的账算到这条头上
         hardRestarts = 0
+        forceSoftVideo = false
+        softRecoverTried = false
         beginSession(url)
         return true
     }
@@ -146,12 +153,14 @@ class VlcFallbackPlayer(
 
     /** 画面比例：VLC 自己有缩放策略，比手工裁切更稳，这里只做模式映射 */
     fun applyLayout(mode: String, scalePct: Int) {
-        val changed = zoomMode != mode || zoomScalePct != pctSafe(scalePct)
         zoomMode = mode
         zoomScalePct = pctSafe(scalePct)
+        // 注意：这里**不重建管线**。旧代码只要参数值变化就 scheduleRestart()，
+        // 而自动去黑边在起播 3.5 秒后会带着新的百分比调用一次 —— 于是每次都被迫
+        // 重建整条 VLC 管线（2–5 秒），重建后又从 HLS 窗口开头重新播，表现为
+        // 「播 5 秒卡住 → 又重复刚才的画面」。只有 surface 尺寸真的变了才该重建，
+        // 那个判断在 onSurfaceResized 里（比较的是实际像素尺寸，不是参数值）。
         layoutSurface()
-        // 比例/缩放变化会改变 surface 尺寸，必须按新尺寸重建 vout 才能生效
-        if (changed && player != null) scheduleRestart()
     }
 
     /**
@@ -174,7 +183,17 @@ class VlcFallbackPlayer(
     fun onHostResized() {
         if (released) return
         if (zoomMode == "scale") layoutSurface()
-        if (player != null) scheduleRestart()
+        // 只有 surface 实际尺寸（像素）跟已交给 VLC 的窗口尺寸不同才需要重建。
+        // 无条件重建是上一版的坑：宿主每重排一次就重启一次管线，画面反复回到窗口开头。
+        maybeRestartIfSizeChanged()
+    }
+
+    private fun maybeRestartIfSizeChanged() {
+        if (released || player == null) return
+        val sv = surfaceView ?: return
+        if (sv.width <= 0 || sv.height <= 0) return
+        if (abs(sv.width - voutWidth) < 8 && abs(sv.height - voutHeight) < 8) return
+        scheduleRestart()
     }
 
     private fun pctSafe(v: Int): Int = v.coerceIn(50, 200)
@@ -257,9 +276,18 @@ class VlcFallbackPlayer(
             // 视频优先硬解，解不了自动退回软解；音频始终由 FFmpeg 解码（MP2/AC-3 靠这个）。
             // 第二个参数是「强制」，旧代码写 true —— 强制硬解在不支持该规格的盒子上会
             // 直接卡住解码器；改成 false 允许 VLC 自己回退到软解。
-            media.setHWDecoderEnabled(true, false)
+            // 卡死看过一次仍救不回来时（forceSoftVideo），视频也强制软解：
+            // Amlogic 这类盒子的 MPEG-2/H.264 硬解在 libvlc 下有「播几秒定格」的毛病。
+            media.setHWDecoderEnabled(!forceSoftVideo, false)
             media.addOption(":network-caching=$NETWORK_CACHING_MS")
             media.addOption(":live-caching=$NETWORK_CACHING_MS")
+            // 直播流（TS/UDP/组播）的时钟抖动是「播几秒卡一下」的常见来源：
+            // 默认的时钟同步会在时间戳跳变时反复重排，关掉抖动补偿反而更稳。
+            media.addOption(":clock-jitter=0")
+            media.addOption(":clock-synchro=0")
+            // 断流时让 VLC 自己重连，别把连接直接丢掉（它会表现为永久定格）
+            media.addOption(":http-reconnect=true")
+            if (forceSoftVideo) media.addOption(":avcodec-hw=none")
             mp.setMedia(media)
             media.release()
             mp.play()
@@ -380,11 +408,22 @@ class VlcFallbackPlayer(
 
     private fun recoverFromStall() {
         if (released) return
+        // 第一步先做「不拆管线」的轻量恢复：很多定格只是 VLC 自己停了播放循环，
+        // 重新 play() 就能接上。拆管线重建会让画面从头播一遍（用户看到「重复之前内容」），
+        // 所以能不重建就不重建。
+        if (!softRecoverTried) {
+            softRecoverTried = true
+            submitVout { runCatching { player?.play() } }
+            return
+        }
         if (hardRestarts >= MAX_HARD_RESTARTS) {
             fail("兼容内核画面卡住无法恢复")
             return
         }
         hardRestarts++
+        // 第二次重建改用视频软解：硬解「播几秒而定格」在 Amlogic 盒子上很常见，
+        // 与其反复重建，不如直接换一条解码路径。
+        if (hardRestarts >= 2) forceSoftVideo = true
         onRestarting?.invoke()
         restartNow()
     }
@@ -485,8 +524,14 @@ class VlcFallbackPlayer(
     }
 
     private companion object {
-        /** 直播缓存（毫秒）：1200 起播偏慢，1000 在盒子实测更跟手且不易断流 */
-        const val NETWORK_CACHING_MS = 1000
+        /**
+         * 直播缓存（毫秒）。
+         *
+         * 这个值必须大于一个分片的时长，否则每个分片边界都要停下来等下一段下载完 ——
+         * HLS 分片普遍 4–6 秒，旧值 1000/1200 根本撑不过一个分片，表现就是
+         * 「播 5 秒左右卡一下」。取 4000 让 VLC 手里常备一个分片，代价是起播慢 1–2 秒。
+         */
+        const val NETWORK_CACHING_MS = 4000
 
         /** 尺寸变化后延迟多久重建：留一帧给布局稳定 */
         const val RESTART_DELAY_MS = 420L

@@ -227,6 +227,16 @@ class PlayerManager(
     var onGiveUp: ((String) -> Unit)? = null
 
     var onSourceChanged: ((Source, Int, Int) -> Unit)? = null
+
+    /**
+     * 视频显示尺寸回调（已按像素宽高比折算）：参数为「显示宽, 显示高」。
+     *
+     * 用途是判断画面比例，从而算出黑边需要放大多少：
+     * 4:3 的老频道在 16:9 屏幕上必然左右留黑，这个信息从轨道宽高比就能拿到，
+     * 比去采样画面像素可靠得多（Exo 是把 SurfaceView 本身按比例缩小，
+     * 采样 SurfaceView 只能拿到纯视频内容，看不到黑边）。
+     */
+    var onVideoSize: ((Int, Int) -> Unit)? = null
     /** 参数：第几次恢复。不设上限，只要用户还在看这条频道就持续恢复 */
     var onReconnecting: ((Int) -> Unit)? = null
     /** 第几个参数：错误文案 / Media3 错误码（给用户截图定位用） */
@@ -371,6 +381,15 @@ class PlayerManager(
                     }
                     if (givenUp) givenUp = false
                 }
+            }
+
+            /** 视频尺寸变化：交给界面判断画面比例（黑边检测的可靠依据） */
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width <= 0 || videoSize.height <= 0) return
+                val ratio = if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f
+                val w = (videoSize.width * ratio).toInt()
+                val h = videoSize.height
+                mainHandler.post { onVideoSize?.invoke(w, h) }
             }
 
             /**
