@@ -27,8 +27,8 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 49
-        versionName = "1.49"
+        versionCode = 50
+        versionName = "1.50"
     }
 
     buildTypes {
@@ -54,6 +54,14 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    packaging {
+        jniLibs {
+            // IJK 的 .so 体积较大：压缩打包可把升级包控制在 ~15MB，
+            // 避免自动升级下载量翻倍（安装时由系统解压）。
+            useLegacyPackaging = true
+        }
     }
 
     buildFeatures {
@@ -82,6 +90,11 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+
+    // IJK 内核：仅在设备缺少 MP2/AC3 等音频解码器时兜底（正常情况下全程走 ExoPlayer）。
+    // 视频走 MediaCodec 硬解，音频由 IJK 内置 FFmpeg 软解，确保 MP2 一定能出声。
+    implementation("io.github.blankyn:ijkplayer-java:0.0.16")
+    implementation("io.github.blankyn:ijkplayer-ex_so:0.0.16")
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

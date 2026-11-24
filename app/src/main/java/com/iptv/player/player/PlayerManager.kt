@@ -13,6 +13,9 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
@@ -39,7 +42,9 @@ class PlayerManager(
     private val bufferMaxMs: Int = 15000,
     private val bufferForPlaybackMs: Int = 1000,
     private val bufferForPlaybackAfterRebufferMs: Int = 2000,
-    private val switchCooldownMs: Long = 8000L
+    private val switchCooldownMs: Long = 8000L,
+    /** 解码器优先策略：auto 自动 / hardware 硬解优先 / software 软解优先 */
+    private val decoderPriority: String = "auto"
 ) {
 
     companion object {
@@ -68,6 +73,20 @@ class PlayerManager(
         private const val STABLE_PLAY_RESET_MS = 60_000L
         /** 所有线路都卡死后，暂停自动换线的时长，避免两条线路无限来回切 */
         private const val FREEZE_SWITCH_COOLDOWN_MS = 120_000L
+        /**
+         * 起播看门狗：每次切换线路后这么久还没出画面，就判定这条线路无响应，自动换下一条。
+         * 旧实现只在界面 openChannel 时布防一次，播放器内部换线后没人重新布防，
+         * 新线路一旦始终不出画面就会永久黑屏——这是「自动换源不生效」的主因。
+         */
+        private const val START_TIMEOUT_MS = 20_000L
+        /** 所有线路都试过仍失败时，最多重新尝试几轮：既不轻易放弃，也不会死循环 */
+        private const val MAX_STARTUP_ROUNDS = 2
+        /**
+         * 无声检测延迟：出画后等这么久再检查音频轨。
+         * Media3 遇到设备没有解码器的音频编码（典型 MP2）时，会把该音轨标记为不支持并
+         * 静默跳过——既不报错也不出声，只靠 onPlayerError 永远等不到，必须主动巡检。
+         */
+        private const val AUDIO_CHECK_DELAY_MS = 3_000L
     }
 
     val player: ExoPlayer
@@ -107,8 +126,33 @@ class PlayerManager(
     /** 刚换过线路后的观察期截止时间：期间不再因卡死换源，避免连续跳线 */
     private var freezeSwitchGraceUntilMs = 0L
 
+    /** 起播尝试轮次：所有线路按顺序试完一遍算一轮，用于限制「全线路重试」次数 */
+    private var startupRounds = 0
+    /** 当前频道是否已经因音频编码不支持（如 MP2）而回退为无声播放 */
+    private var audioCompatApplied = false
+    /** 用户在设置里强制「仅视频、关闭音频」 */
+    private var videoOnlyRequested = false
+    /** 当前线路对象：音频兼容回退时界面需要 URL 去启动兜底内核 */
+    private var currentSource: Source? = null
+    /** 兜底内核对 Exo 的挂起标记：挂起期间暂停巡检、重连与错误处理 */
+    private var suspended = false
+    /** 无声检测是否已排期：同一条线路只排一次，避免反复出缓冲时不断推迟 */
+    private var audioCheckScheduled = false
+    /** 当前线路是否已完成无声检测：只查一次，避免播放中途因瞬时轨道变化误切内核 */
+    private var audioChecked = false
+
     /** 所有线路都卡住、自动换线已暂停时回调 */
     var onAllSourcesStuck: (() -> Unit)? = null
+
+    /** 起播超时自动换到下一线路后回调（界面用它提示用户） */
+    var onStartTimeoutSwitched: (() -> Unit)? = null
+
+    /**
+     * 音频编码不支持（MP2/AC3 等老设备解码器缺失）而需要外部内核兜底时回调。
+     * 参数是当前线路，界面据此启动 IJK 内核（视频硬解 + 音频 FFmpeg 软解）。
+     * 若界面没有接管（未注册回调），playerManager 会自动退化为无声播放。
+     */
+    var onAudioFallback: ((Source) -> Unit)? = null
 
     /** 网络恢复监听：WiFi 断开重连、切网后立刻接上直播，不用等看门狗超时 */
     private var connectivityManager: android.net.ConnectivityManager? = null
@@ -127,6 +171,12 @@ class PlayerManager(
             mainHandler.postDelayed(this, FREEZE_CHECK_INTERVAL_MS)
         }
     }
+
+    /** 起播看门狗：由 switchTo 每次重新布防，只负责「这条新线路一直不出画面」的场景 */
+    private val startWatchdogRunnable = Runnable { checkStartTimeout() }
+
+    /** 无声检测：出画后检查音频轨是否真的可用（MP2 等编码可能被静默跳过） */
+    private val audioCheckRunnable = Runnable { checkAudioAvailability() }
 
     // 切换冷却：切换后 switchCooldownMs 内不再响应卡顿切换
     var lastSwitchTimeMs = 0L
@@ -184,9 +234,12 @@ class PlayerManager(
             .setInitialBitrateEstimate(1_500_000L)
             .build()
 
-        // 硬解失败时允许回退软解，避免个别 TV 芯片在特定分辨率上直接卡死
+        // 硬解失败时允许回退软解，避免个别 TV 芯片在特定分辨率上直接卡死。
+        // 解码器优先策略（设置页可调）：有些老盒子硬解 MP2/H.264 High 会花屏或卡死，
+        // 改成软解优先往往能正常播放；反之低端 CPU 软解 4K 会掉帧，就用硬解优先。
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
+            .setMediaCodecSelector(buildCodecSelector(decoderPriority))
 
         // 轨道选择优化（针对「看一会儿开始卡顿」）：
         // HLS 自适应码率切到不同分辨率时，硬解需要重建解码器，画面会明显顿一下，
@@ -231,6 +284,7 @@ class PlayerManager(
         networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 mainHandler.post {
+                    if (suspended) return@post
                     if (currentMediaItem == null) return@post
                     val state = player.playbackState
                     val needRecover = state == Player.STATE_IDLE || state == Player.STATE_BUFFERING
@@ -269,11 +323,17 @@ class PlayerManager(
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                // 出画面即撤销起播看门狗：之后交给卡死巡检与原线路重连
+                if (state == Player.STATE_READY) {
+                    mainHandler.removeCallbacks(startWatchdogRunnable)
+                }
                 // 真正出画面：确认这条线路可用，进入锁台状态
                 if (state == Player.STATE_READY && player.playWhenReady) {
                     hasEverPlayed = true
                     consecutiveFailures = 0
                     silent404Count = 0
+                    // 画面已出来：延迟检查音轨是否可用，覆盖「不报错但没声音」的场景
+                    scheduleAudioCheck()
                     val now = System.currentTimeMillis()
                     // 距离上次重连已经很久：视为新一轮观看，恢复重连机会
                     if (lastReconnectMs > 0L && now - lastReconnectMs >= RECONNECT_RESET_WINDOW_MS) {
@@ -284,6 +344,8 @@ class PlayerManager(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // 兜底内核接管期间 Exo 已停止，不再处理任何错误
+                if (suspended) return
                 val now = System.currentTimeMillis()
                 val code = error.errorCode
 
@@ -301,6 +363,22 @@ class PlayerManager(
                     (code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && isHttp404(error))
                 if (missingSegment && hasEverPlayed) {
                     recoverFromMissingSegment(now)
+                    return
+                }
+
+                // 音频编码设备不支持（典型：只有 MP3 解码器、没有 MP2 解码器）：
+                // 直接换源/换台也播不了，反而会黑屏。优先交给 IJK 兜底内核（音频 FFmpeg 软解），
+                // 界面未接管时才退化为关闭音频轨继续出画面。
+                if (!audioCompatApplied && isAudioDecodeError(error)) {
+                    audioCompatApplied = true
+                    applyAudioEnabled(false)
+                    val source = currentSource
+                    val fallback = onAudioFallback
+                    if (source != null && fallback != null) {
+                        fallback.invoke(source)
+                    } else {
+                        scheduleReconnect(now)
+                    }
                     return
                 }
 
@@ -371,6 +449,106 @@ class PlayerManager(
         return text.contains("404")
     }
 
+    /**
+     * 判断错误是否由「音频解码器不支持」引起。
+     * Media3 里音频/视频解码失败共用 4001(初始化失败)/4003(超出能力)/4004(格式不支持)，
+     * 靠错误文案里的音频关键字区分；不能只凭错误码就把视频也关掉。
+     */
+    private fun isAudioDecodeError(error: PlaybackException): Boolean {
+        val code = error.errorCode
+        // 音频输出通道自身的初始化/写入失败：一定与音频相关，无需再看文案
+        if (code == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+            code == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+        ) {
+            return true
+        }
+        if (code != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED &&
+            code != PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES &&
+            code != PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+        ) {
+            return false
+        }
+        var text = (error.message ?: "").lowercase()
+        var cause: Throwable? = error.cause
+        var depth = 0
+        while (cause != null && depth++ < 8) {
+            text += " " + (cause.message ?: "").lowercase()
+            cause = cause.cause
+        }
+        return text.contains("audio") || text.contains("mp2") ||
+            text.contains("mpeg audio") || text.contains("ac3") ||
+            text.contains("eac3") || text.contains("dts")
+    }
+
+    /**
+     * 开关音频轨。
+     * 关闭音频轨后视频仍正常播放（无声），比整条线路被判失败/黑屏体验好得多；
+     * 对不支持的音频编码（MP2/AC3/DTS）这是唯一能在 Exo 侧兜底的手段。
+     */
+    private fun applyAudioEnabled(enabled: Boolean) {
+        try {
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !enabled)
+                .build()
+        } catch (t: Throwable) {
+            // 老固件/老 Media3 实现异常时忽略，绝不能影响播放
+        }
+    }
+
+    /** 设置页「仅视频」开关 */
+    fun setAudioOutputEnabled(enabled: Boolean) {
+        videoOnlyRequested = !enabled
+        applyAudioEnabled(enabled)
+    }
+
+    /**
+     * 兜底内核接管 / 交还时调用。
+     * 挂起时会停掉 Exo 并撤销所有巡检与重连——部分盒子的硬解码器实例有限，
+     * 不彻底停止 Exo 会占着 MediaCodec，导致 IJK 起不来。
+     */
+    fun setSuspended(value: Boolean) {
+        if (suspended == value) return
+        suspended = value
+        mainHandler.removeCallbacks(reconnectRunnable)
+        mainHandler.removeCallbacks(startWatchdogRunnable)
+        mainHandler.removeCallbacks(audioCheckRunnable)
+        audioCheckScheduled = false
+        audioChecked = false
+        if (value) {
+            try {
+                player.pause()
+                player.stop()
+            } catch (t: Throwable) {
+                // 停止失败不影响兜底内核启动
+            }
+        }
+    }
+
+    /**
+     * 兜底内核也失败时调用：放弃声音，回到 Exo 以「仅视频」方式播放当前线路。
+     * 同时标记 audioCompatApplied，避免再次触发回退形成死循环。
+     */
+    fun continueWithoutAudio() {
+        suspended = false
+        audioCompatApplied = true
+        applyAudioEnabled(false)
+        lastProgressPositionMs = 0L
+        lastProgressAtMs = 0L
+        freezeRecoveries = 0
+        val item = currentMediaItem ?: return
+        try {
+            player.setMediaItem(item, C.TIME_UNSET)
+            player.prepare()
+            player.playWhenReady = true
+        } catch (t: Throwable) {
+            scheduleReconnect(System.currentTimeMillis())
+            return
+        }
+        mainHandler.removeCallbacks(startWatchdogRunnable)
+        mainHandler.postDelayed(startWatchdogRunnable, START_TIMEOUT_MS)
+    }
+
     /** 当前线路是否已经成功出过画面（给 UI 判断看门狗是否需要兜底） */
     fun hasPlayed(): Boolean = hasEverPlayed
 
@@ -386,8 +564,11 @@ class PlayerManager(
     fun playChannel(channel: Channel) {
         currentChannel = channel
         triedIndices.clear()
+        startupRounds = 0
         consecutiveFailures = 0
         givenUp = false
+        // 新频道重新给音频一次机会：上一条频道因 MP2/AC3 不支持而降级的「无声播放」不延续
+        audioCompatApplied = false
         // 每次起播都重置冷却基准，避免上一条频道的冷却时间影响新频道
         lastSwitchTimeMs = 0L
         lastErrorSwitchMs = 0L
@@ -416,9 +597,45 @@ class PlayerManager(
         val now = System.currentTimeMillis()
         if (!force && now - lastSwitchTimeMs < switchCooldownMs) return false
 
-        val ranked = rankedIndices(channel, excludeTried = true)
-        if (ranked.isEmpty()) return false
+        var ranked = rankedIndices(channel, excludeTried = true)
+        if (ranked.isEmpty()) {
+            // 所有线路按顺序都试过仍未成功：清空尝试记录再来一轮。
+            // 免费源常常「第一条彻底挂了、第二条偶尔能起」，只试一遍就放弃太早；
+            // 但必须限制轮数，否则会在两条死线路之间无限循环。
+            // 新一轮从「当前线路的下一条」开始，避免又先重试刚失败的那一条。
+            if (startupRounds >= MAX_STARTUP_ROUNDS) return false
+            startupRounds++
+            triedIndices.clear()
+            ranked = channel.sources.indices
+                .filter { it != currentSourceIndex }
+                .ifEmpty { channel.sources.indices.toList() }
+        }
         switchTo(ranked.first(), C.TIME_UNSET)
+        return true
+    }
+
+    /**
+     * 手动换线：用户明确要求换一条线路时调用，无视「锁台」限制。
+     * 用于自动换源仍找不到可用线路、或用户想主动避开当前卡顿线路的场景。
+     */
+    fun switchToNextSourceManually(): Boolean {
+        val channel = currentChannel ?: return false
+        if (channel.sources.size <= 1) return false
+        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
+        if (candidates.isEmpty()) return false
+        val next = candidates.firstOrNull { it !in triedIndices } ?: candidates.first()
+
+        // 手动换线 = 用户主动重置：清空锁台、失败熔断与卡死统计
+        hasEverPlayed = false
+        givenUp = false
+        startupRounds = 0
+        triedIndices.clear()
+        freezeRecoveries = 0
+        freezeTimestamps.clear()
+        freezeSwitchChain = 0
+        stableSinceMs = 0L
+        freezeSwitchGraceUntilMs = System.currentTimeMillis() + FREEZE_SWITCH_GRACE_MS
+        switchTo(next, C.TIME_UNSET)
         return true
     }
 
@@ -428,6 +645,10 @@ class PlayerManager(
         val source = channel.sources.getOrNull(index) ?: return
         triedIndices.add(index)
         currentSourceIndex = index
+        currentSource = source
+        // 切源即恢复 Exo 正常工作（若此前被兜底内核挂起），并给音频兼容一次重新判断的机会
+        suspended = false
+        audioCompatApplied = false
         lastSwitchTimeMs = System.currentTimeMillis()
 
         val builder = MediaItem.Builder().setUri(source.url)
@@ -438,8 +659,11 @@ class PlayerManager(
         val mediaItem = builder.build()
         currentMediaItem = mediaItem
 
-        // 换线路 = 全新开始：解除锁台、清空重连计数、取消排队中的重连
+        // 换线路 = 全新开始：解除锁台、清空重连计数、取消排队中的重连与无声检测
         mainHandler.removeCallbacks(reconnectRunnable)
+        mainHandler.removeCallbacks(audioCheckRunnable)
+        audioCheckScheduled = false
+        audioChecked = false
         hasEverPlayed = false
         reconnectAttempts = 0
         lastReconnectMs = 0L
@@ -454,8 +678,109 @@ class PlayerManager(
         player.setMediaItem(mediaItem, positionMs)
         player.prepare()
         player.playWhenReady = true
+
+        // 每次切源都重新布防起播看门狗（关键修复）：
+        // 旧实现只在 MainActivity.openChannel 布防一次，播放器内部换线后没有兜底，
+        // 新线路若始终不出画面就会一直黑屏，自动换源表现为「只换一次就停住」。
+        mainHandler.removeCallbacks(startWatchdogRunnable)
+        mainHandler.postDelayed(startWatchdogRunnable, START_TIMEOUT_MS)
+        // 切源后按当前策略设置音频轨（「仅视频」或已触发音频兼容回退时关闭）
+        applyAudioEnabled(!videoOnlyRequested && !audioCompatApplied)
+
         channel.selectedIndex = index
         onSourceChanged?.invoke(source, index, channel.sources.size)
+    }
+
+    /**
+     * 排期一次无声检测：每条线路只在首次出画后排一次，避免反复缓冲时不断推迟。
+     */
+    private fun scheduleAudioCheck() {
+        if (audioCheckScheduled || audioChecked ||
+            audioCompatApplied || videoOnlyRequested || suspended
+        ) {
+            return
+        }
+        audioCheckScheduled = true
+        mainHandler.removeCallbacks(audioCheckRunnable)
+        mainHandler.postDelayed(audioCheckRunnable, AUDIO_CHECK_DELAY_MS)
+    }
+
+    /**
+     * 无声检测：出画后确认确实存在「受支持」的音频轨。
+     *
+     * Media3 遇到设备没有解码器的音频编码（典型 MP2）时，会把该音轨标记为不支持并
+     * 静默跳过——既不抛错也不出声，只靠 onPlayerError 永远等不到。
+     * 这里主动发现后交给兜底内核（IJK，音频 FFmpeg 软解），避免用户一直看着无声画面。
+     */
+    private fun checkAudioAvailability() {
+        audioCheckScheduled = false
+        if (audioChecked) return
+        if (suspended || audioCompatApplied || videoOnlyRequested) return
+        if (!hasEverPlayed) return
+        val source = currentSource ?: return
+        audioChecked = true
+
+        val tracks = try {
+            player.currentTracks
+        } catch (t: Throwable) {
+            return
+        }
+
+        var audioUsable = false
+        var mp2Audio = false
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            if (!group.isSupported) continue
+            audioUsable = true
+            // 设备即使「声称支持」MP2，也可能解出静音（部分电视芯片的通病）。
+            // 只要音轨是 MP2，就统一交给带 FFmpeg 的兜底内核，确保一定能出声。
+            for (i in 0 until group.length) {
+                val mime = try {
+                    group.getTrackFormat(i).sampleMimeType
+                } catch (t: Throwable) {
+                    null
+                }
+                if (mime == MimeTypes.AUDIO_MPEG_L2) {
+                    mp2Audio = true
+                    break
+                }
+            }
+            if (mp2Audio) break
+        }
+        if (audioUsable && !mp2Audio) return
+
+        // 没有可用音轨（缺解码器），或是 MP2 音轨：交给兜底内核（FFmpeg 软解）处理
+        audioCompatApplied = true
+        applyAudioEnabled(false)
+        val fallback = onAudioFallback
+        if (fallback != null) {
+            fallback.invoke(source)
+        } else {
+            // 没有兜底内核可用：保持无声播放，至少画面在线
+            scheduleReconnect(System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * 起播看门狗：切源后 [START_TIMEOUT_MS] 仍未出画面，判定该线路无响应，自动换下一条。
+     * 成功出画面时会在 onPlaybackStateChanged(READY) 撤销，因此不会打断正常播放。
+     */
+    private fun checkStartTimeout() {
+        if (suspended) return
+        if (currentMediaItem == null) return
+        if (hasEverPlayed) return
+        if (player.playbackState == Player.STATE_READY) return
+        val channel = currentChannel ?: return
+        if (channel.sources.size <= 1) {
+            // 只有一条线路时没有可换的目标，保持原线路继续重试
+            return
+        }
+        if (switchToNextSource(force = true)) {
+            onStartTimeoutSwitched?.invoke()
+        } else if (!givenUp) {
+            givenUp = true
+            onGiveUp?.invoke("所有线路均无响应，请检查网络或直播源")
+        }
     }
 
     /**
@@ -464,8 +789,9 @@ class PlayerManager(
      * 用户主动暂停（playWhenReady=false）时不计入。
      */
     private fun checkFreeze() {
+        if (suspended) return
         if (currentMediaItem == null) return
-        // 起播阶段交给主界面的起播看门狗处理，这里只负责「已经播出来之后再卡死」
+        // 起播阶段交给内置的起播看门狗（随每次切源重新布防），这里只负责「已经播出来之后再卡死」
         if (!hasEverPlayed) {
             lastProgressPositionMs = player.currentPosition
             lastProgressAtMs = System.currentTimeMillis()
@@ -645,6 +971,7 @@ class PlayerManager(
 
     /** 播放中出错：安排在原线路上恢复（带退避），不换线路、不设次数上限 */
     private fun scheduleReconnect(now: Long) {
+        if (suspended) return
         mainHandler.removeCallbacks(reconnectRunnable)
         if (lastReconnectMs > 0L && now - lastReconnectMs >= RECONNECT_RESET_WINDOW_MS) {
             reconnectAttempts = 0
@@ -662,6 +989,7 @@ class PlayerManager(
      * 尽量保留最后一帧，让恢复过程几乎无感。
      */
     private fun performReconnect() {
+        if (suspended) return
         if (currentMediaItem == null) return
         onReconnecting?.invoke(reconnectAttempts)
         try {
@@ -682,9 +1010,30 @@ class PlayerManager(
         view.player = player
     }
 
+    /**
+     * 按用户选择调整解码器优先顺序。
+     * MediaCodecSelector 返回的列表顺序就是 Exo 的尝试顺序：
+     * 把 softwareOnly 排到前面即为「软解优先」，排到后面即为「硬解优先」。
+     * auto 直接用系统默认顺序，行为与旧版本完全一致。
+     */
+    private fun buildCodecSelector(priority: String): MediaCodecSelector {
+        if (priority != "hardware" && priority != "software") return MediaCodecSelector.DEFAULT
+        val preferSoftware = priority == "software"
+        return MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+            val infos: List<MediaCodecInfo> = MediaCodecUtil.getDecoderInfos(
+                mimeType, requiresSecureDecoder, requiresTunnelingDecoder
+            )
+            infos.sortedBy { if (it.softwareOnly == preferSoftware) 0 else 1 }
+        }
+    }
+
     fun release() {
         mainHandler.removeCallbacks(reconnectRunnable)
         mainHandler.removeCallbacks(freezeCheckRunnable)
+        mainHandler.removeCallbacks(startWatchdogRunnable)
+        mainHandler.removeCallbacks(audioCheckRunnable)
+        audioCheckScheduled = false
+        audioChecked = false
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (t: Throwable) {

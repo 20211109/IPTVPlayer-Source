@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -14,6 +15,7 @@ import android.view.WindowManager
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -23,6 +25,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
@@ -32,8 +36,10 @@ import com.iptv.player.config.HttpCompat
 import com.iptv.player.config.PlaybackSettings
 import com.iptv.player.data.Channel
 import com.iptv.player.data.M3uParser
+import com.iptv.player.data.Source
 import com.iptv.player.data.SourceRepository
 import com.iptv.player.epg.EpgManager
+import com.iptv.player.player.IjkFallbackPlayer
 import com.iptv.player.player.PlayerManager
 import com.iptv.player.player.StallDetector
 import com.iptv.player.update.UpdateInfo
@@ -94,24 +100,6 @@ class MainActivity : AppCompatActivity() {
     /** 节目单浮层只短暂显示，避免长时间盖住画面 */
     private val hideEpgRunnable = Runnable { epgPanel.visibility = View.GONE }
 
-    /**
-     * 起播看门狗：20 秒还没出画面，才认为这条线路卡死、自动换下一条。
-     * 免费直播源经常「能连上但永远不吐数据」，没有这个兜底会一直黑屏。
-     * 关键：一旦成功播放过就立即失效（pm.hasPlayed() 为 true），
-     * 绝不会在观看途中因为一次抖动把用户切到别的线路。
-     */
-    private val startWatchdog = Runnable {
-        val pm = playerManager ?: return@Runnable
-        if (pm.hasPlayed() || pm.player.playbackState == Player.STATE_READY) return@Runnable
-        val switched = pm.switchToNextSource(force = true)
-        if (switched) {
-            toast("这条线路无响应，已自动换线路")
-        } else {
-            setStatus("所有线路都连不上，请换个频道", R.color.red)
-            toast("所有线路都连不上，请换个频道")
-        }
-    }
-
     // 视图
     private lateinit var pageList: View
     private lateinit var pagePlayer: View
@@ -138,6 +126,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvEpgNow: TextView
     private lateinit var tvEpgNext: TextView
     private lateinit var btnFullscreen: Button
+    /** 手动换线按钮：自动换源仍不理想时，用户可主动切到下一条线路 */
+    private lateinit var btnSwitchLine: Button
+    /** 播放视图容器：SurfaceView / TextureView 二选一 */
+    private lateinit var videoHost: FrameLayout
+    /** 当前 PlayerView（切换渲染方式时整体重建） */
+    private var playerViewRef: PlayerView? = null
+    /** MP2 等设备缺失音频解码器时临时接管的 IJK 兜底播放器（视频硬解 + 音频软件解码） */
+    private var ijkFallback: IjkFallbackPlayer? = null
+    /** 兜底内核启动超时计时器 */
+    private var ijkTimeoutRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -173,6 +171,8 @@ class MainActivity : AppCompatActivity() {
         tvEpgNow = findViewById(R.id.tvEpgNow)
         tvEpgNext = findViewById(R.id.tvEpgNext)
         btnFullscreen = findViewById(R.id.btnFullscreen)
+        btnSwitchLine = findViewById(R.id.btnSwitchLine)
+        videoHost = findViewById(R.id.videoHost)
 
         // 列数随屏幕自适应（手机 2 列 / 平板 4 列 / TV 5 列）
         val columns = resources.getInteger(R.integer.grid_columns)
@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnAbout).setOnClickListener { showAboutDialog() }
         findViewById<Button>(R.id.btnSettings).setOnClickListener { showSettingsDialog() }
         btnFullscreen.setOnClickListener { toggleFullscreen() }
+        btnSwitchLine.setOnClickListener { switchSourceManually() }
         if (!isPhone()) btnFullscreen.visibility = View.GONE
         // 触摸设备支持左右滑动切换焦点频道；TV 用方向键移动焦点，不拦截触摸
         if (!isTv()) {
@@ -336,6 +337,11 @@ class MainActivity : AppCompatActivity() {
                     uiHandler.removeCallbacks(pickerLongPressRunnable)
                     if (pickerLongPressFired) {
                         pickerLongPressFired = false
+                        return true
+                    }
+                    // 兜底内核没有 PlayerView 控制条：短按确认键直接暂停/继续
+                    if (ijkFallback != null) {
+                        toggleIjkPlayback()
                         return true
                     }
                 }
@@ -804,11 +810,17 @@ class MainActivity : AppCompatActivity() {
 
     /** 打开频道开始播放 */
     private fun openChannel(channel: Channel) {
+        // 换台/重新起播前，先释放可能存在的兜底内核并把 Exo 视图恢复显示
+        releaseIjkFallback()
+        playerViewRef?.visibility = View.VISIBLE
         currentChannel = channel
         repo.setLastChannelName(channel.name)
         tvPlayerTitle.text = channel.name
+        // 只有多条线路时才显示「换线」按钮，避免单线路频道给用户无效操作
+        btnSwitchLine.visibility = if (channel.sources.size > 1) View.VISIBLE else View.GONE
         setStatus("正在连接…", R.color.yellow)
         showPlayerPage()
+        applyVideoLayout()
 
         if (playerManager == null) initPlayer()
 
@@ -823,12 +835,31 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // 20 秒没画面才自动换线路（成功出画面后看门狗立即失效）
-        uiHandler.removeCallbacks(startWatchdog)
-        uiHandler.postDelayed(startWatchdog, 20_000L)
+        // 起播看门狗已下沉到 PlayerManager：每次内部切源都会重新布防，
+        // 避免「换到一条死线路后没人兜底、永久黑屏」的问题。
 
         // 加载节目单（后台，失败静默）
         loadEpg(channel)
+    }
+
+    /**
+     * 手动换线：无视「锁台」直接切到下一条线路。
+     * 自动换源在「已成功播放过」时会锁台只在原线路重连，用户想主动避开某条
+     * 画质差/频繁卡顿但又能播的线路时，需要一个明确的入口。
+     */
+    private fun switchSourceManually() {
+        val pm = playerManager ?: return
+        // 兜底内核接管期间换线：先交还控制权，让 Exo 重新起播新线路
+        if (ijkFallback != null) {
+            releaseIjkFallback()
+            playerViewRef?.visibility = View.VISIBLE
+            pm.setSuspended(false)
+        }
+        if (pm.switchToNextSourceManually()) {
+            toast("已切换到下一条线路")
+        } else {
+            toast("当前频道没有其他线路可切换")
+        }
     }
 
     /** 仅手机进入横屏；平板/TV 保持原方向 */
@@ -903,7 +934,8 @@ class MainActivity : AppCompatActivity() {
                 bufferMaxMs = maxS * 1000,
                 bufferForPlaybackMs = playStart,
                 bufferForPlaybackAfterRebufferMs = rebuffer,
-                switchCooldownMs = cooldownMs
+                switchCooldownMs = cooldownMs,
+                decoderPriority = playSettings.decoderPriority
             )
         } catch (t: Throwable) {
             // 兜底：即便老盒子因奇怪参数/解码能力抛错，也绝不能闪退
@@ -914,7 +946,8 @@ class MainActivity : AppCompatActivity() {
                     bufferMaxMs = 40_000,
                     bufferForPlaybackMs = 1_500,
                     bufferForPlaybackAfterRebufferMs = 1_500,
-                    switchCooldownMs = cooldownMs
+                    switchCooldownMs = cooldownMs,
+                    decoderPriority = playSettings.decoderPriority
                 )
             } catch (t2: Throwable) {
                 toast("播放器初始化失败：${t2.message ?: t2.javaClass.simpleName}")
@@ -922,6 +955,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         pm.maxRetry = playSettings.maxRetry
+        pm.setAudioOutputEnabled(playSettings.audioEnabled)
         lateinit var sd: StallDetector
         sd = StallDetector(
             onStall = stall@{
@@ -947,10 +981,22 @@ class MainActivity : AppCompatActivity() {
         )
         pm.player.addAnalyticsListener(sd)
         pm.onSourceChanged = { _, idx, total ->
+            // 播放器内部自动换线 / 手动换线都会走到这里：同步重置卡顿检测，
+            // 否则 StallDetector 会把新线路起播缓冲算成上一条线路的卡顿。
+            sd.onSourceSwitched()
             runOnUiThread {
                 currentLineLabel = if (total > 1) "线路 ${idx + 1}/$total" else "直播"
                 setStatus("$currentLineLabel · 连接中…", R.color.yellow)
             }
+        }
+        // 起播看门狗（在 PlayerManager 内，随每次切源重新布防）自动换线后的提示
+        pm.onStartTimeoutSwitched = {
+            runOnUiThread { toast("这条线路无响应，已自动换线路") }
+        }
+        // 设备缺少 MP2/AC3 等音频解码器时：临时切换到 IJK 兜底内核（视频硬解 + 音频软解），
+        // 保证 MP2 也能出声；兜底内核也起不来时再退化为无声播放。
+        pm.onAudioFallback = { source ->
+            runOnUiThread { startIjkFallback(source) }
         }
         pm.onReconnecting = { attempt ->
             runOnUiThread {
@@ -989,7 +1035,6 @@ class MainActivity : AppCompatActivity() {
                 pbLoading.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
                 when (state) {
                     Player.STATE_READY -> {
-                        uiHandler.removeCallbacks(startWatchdog)
                         setStatus("$currentLineLabel · 播放中", R.color.green)
                     }
                     Player.STATE_BUFFERING -> {
@@ -999,10 +1044,146 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        pm.attachView(findViewById(R.id.playerView))
+        pm.attachView(ensurePlayerView())
         playerManager = pm
         stallDetector = sd
+        applyVideoLayout()
         statsBar.visibility = View.VISIBLE
+    }
+
+    /**
+     * 创建（或按渲染方式重建）PlayerView 并挂到当前播放器。
+     * surface 兼容性最好、更省电；texture 支持动画缩放，个别老盒子上用它更稳。
+     */
+    private fun ensurePlayerView(): PlayerView {
+        val wantTexture = playSettings.renderMode == "texture"
+        val existing = playerViewRef
+        if (existing != null && existing.tag == playSettings.renderMode) {
+            playerManager?.let { existing.player = it.player }
+            return existing
+        }
+        existing?.player = null
+        videoHost.removeAllViews()
+        val layout = if (wantTexture) R.layout.view_player_texture else R.layout.view_player_surface
+        val pv = layoutInflater.inflate(layout, videoHost, false) as PlayerView
+        pv.tag = playSettings.renderMode
+        videoHost.addView(pv)
+        playerViewRef = pv
+        playerManager?.let { pv.player = it.player }
+        return pv
+    }
+
+    /**
+     * 应用画面比例与自定义缩放。
+     * 自定义缩放不依赖 TextureView 的 scale 属性，而是直接放大/缩小视图实际尺寸并居中，
+     * SurfaceView（老盒子默认）也能正确生效。
+     */
+    private fun applyVideoLayout() {
+        // 兜底内核（IJK）有自己的一套画面比例计算，同步应用同一份缩放配置
+        ijkFallback?.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
+        val pv = playerViewRef ?: return
+        val mode = playSettings.zoomMode
+        pv.resizeMode = when (mode) {
+            "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            "crop" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        pv.post {
+            val hostW = if (videoHost.width > 0) videoHost.width
+                else resources.displayMetrics.widthPixels
+            val hostH = if (videoHost.height > 0) videoHost.height
+                else resources.displayMetrics.heightPixels
+            val lp = pv.layoutParams as? FrameLayout.LayoutParams
+                ?: FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            if (mode == "scale" && hostW > 0 && hostH > 0) {
+                val scale = playSettings.zoomScalePct.coerceIn(50, 200) / 100f
+                lp.width = (hostW * scale).toInt()
+                lp.height = (hostH * scale).toInt()
+            } else {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+            }
+            lp.gravity = Gravity.CENTER
+            pv.layoutParams = lp
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸
+        if (pagePlayer.visibility == View.VISIBLE) applyVideoLayout()
+    }
+
+    /**
+     * 启动 IJK 兜底内核：视频走 MediaCodec 硬解，音频由 FFmpeg 软解，专门解决
+     * 设备缺少 MP2 解码器导致「有画面没声音」的问题。
+     * 启动成功则隐藏 Exo 的 PlayerView；失败或 12 秒超时则回退到 Exo 无声播放。
+     */
+    private fun startIjkFallback(source: Source) {
+        val pm = playerManager ?: return
+        // 同一时间只保留一个兜底内核
+        releaseIjkFallback()
+        // 必须先停掉 Exo：部分盒子的硬解码器实例有限，Exo 不释放 IJK 就起不来
+        pm.setSuspended(true)
+        playerViewRef?.visibility = View.GONE
+        pbLoading.visibility = View.VISIBLE
+        setStatus("$currentLineLabel · 音频兼容内核启动中…", R.color.yellow)
+
+        var handled = false
+        var prepared = false
+
+        fun giveUp(reason: String) {
+            if (handled) return
+            handled = true
+            releaseIjkFallback()
+            playerViewRef?.visibility = View.VISIBLE
+            pbLoading.visibility = View.GONE
+            playerManager?.continueWithoutAudio()
+            toast("音频兼容播放失败，已转为无声播放")
+            setStatus("$currentLineLabel · 音频编码不支持，已无声播放", R.color.yellow)
+        }
+
+        val fallback = IjkFallbackPlayer(
+            this,
+            videoHost,
+            onPrepared = {
+                if (!prepared) {
+                    prepared = true
+                    ijkTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
+                    ijkTimeoutRunnable = null
+                    pbLoading.visibility = View.GONE
+                    setStatus("$currentLineLabel · 播放中（音频兼容）", R.color.green)
+                }
+            },
+            onFailed = { reason -> giveUp(reason) }
+        )
+        ijkFallback = fallback
+        fallback.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
+        if (!fallback.play(source.url)) {
+            giveUp("启动失败")
+            return
+        }
+        val timeout = Runnable { giveUp("启动超时") }
+        ijkTimeoutRunnable = timeout
+        uiHandler.postDelayed(timeout, IJK_START_TIMEOUT_MS)
+    }
+
+    /** 释放兜底内核（如果有）。调用方负责恢复 PlayerView 的显示。 */
+    private fun releaseIjkFallback() {
+        ijkTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
+        ijkTimeoutRunnable = null
+        ijkFallback?.release()
+        ijkFallback = null
+    }
+
+    /** 兜底内核没有 PlayerView 控制条：遥控确认键直接暂停/继续 */
+    private fun toggleIjkPlayback() {
+        val fb = ijkFallback ?: return
+        val playing = fb.togglePlayPause()
+        toast(if (playing) "继续播放" else "已暂停")
     }
 
     /** TV/盒子播放时隐藏状态栏与导航栏，获得真正的全屏画面 */
@@ -1088,11 +1269,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closePlayer() {
-        uiHandler.removeCallbacks(startWatchdog)
         uiHandler.removeCallbacks(pickerLongPressRunnable)
         pickerDialog?.dismiss()
         pickerDialog = null
         pbLoading.visibility = View.GONE
+        releaseIjkFallback()
+        playerViewRef?.visibility = View.VISIBLE
         playerManager?.player?.stop()
         // 退出播放后恢复正常息屏策略，避免列表页也一直亮着
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1156,6 +1338,14 @@ class MainActivity : AppCompatActivity() {
         val cbStats = view.findViewById<android.widget.CheckBox>(R.id.cbShowStats)
         val cbInsecure = view.findViewById<android.widget.CheckBox>(R.id.cbInsecureTls)
         val cbAutoSwitch = view.findViewById<android.widget.CheckBox>(R.id.cbAutoSwitch)
+        val spZoom = view.findViewById<android.widget.Spinner>(R.id.spZoomMode)
+        val etZoomScale = view.findViewById<EditText>(R.id.etZoomScale)
+        val spDecoder = view.findViewById<android.widget.Spinner>(R.id.spDecoder)
+        val spRender = view.findViewById<android.widget.Spinner>(R.id.spRender)
+        val cbAudio = view.findViewById<android.widget.CheckBox>(R.id.cbAudio)
+        val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
+        val decoderValues = resources.getStringArray(R.array.decoder_values)
+        val renderValues = resources.getStringArray(R.array.render_values)
 
         etWindow.setText(playSettings.stallWindowS.toString())
         etCount.setText(playSettings.stallCount.toString())
@@ -1168,11 +1358,24 @@ class MainActivity : AppCompatActivity() {
         cbStats.isChecked = playSettings.showStats
         cbInsecure.isChecked = playSettings.insecureTls
         cbAutoSwitch.isChecked = playSettings.autoSwitchOnStall
+        spZoom.setSelection(zoomValues.indexOf(playSettings.zoomMode).coerceAtLeast(0))
+        etZoomScale.setText(playSettings.zoomScalePct.toString())
+        spDecoder.setSelection(decoderValues.indexOf(playSettings.decoderPriority).coerceAtLeast(0))
+        spRender.setSelection(renderValues.indexOf(playSettings.renderMode).coerceAtLeast(0))
+        cbAudio.isChecked = playSettings.audioEnabled
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("播放参数设置")
             .setView(view)
             .setPositiveButton("保存") { _, _ ->
+                // 先记录旧值：只有真正变化时才需要重建播放器/视图
+                val oldTls = playSettings.insecureTls
+                val oldZoomMode = playSettings.zoomMode
+                val oldZoomScale = playSettings.zoomScalePct
+                val oldDecoder = playSettings.decoderPriority
+                val oldRender = playSettings.renderMode
+                val oldAudio = playSettings.audioEnabled
+
                 playSettings.stallWindowS = etWindow.intOr(PlaybackSettings.DEF_STALL_WINDOW)
                 playSettings.stallCount = etCount.intOr(PlaybackSettings.DEF_STALL_COUNT)
                 playSettings.stallCooldownS = etCooldown.intOr(PlaybackSettings.DEF_STALL_COOLDOWN)
@@ -1183,19 +1386,45 @@ class MainActivity : AppCompatActivity() {
                 playSettings.maxRetry = etRetry.intOr(PlaybackSettings.DEF_MAX_RETRY)
                 playSettings.showStats = cbStats.isChecked
                 playSettings.autoSwitchOnStall = cbAutoSwitch.isChecked
-                val tlsChanged = cbInsecure.isChecked != playSettings.insecureTls
-                playSettings.insecureTls = cbInsecure.isChecked
-                if (tlsChanged) {
-                    // 播放器/网络客户端是按旧策略创建的，释放后下次进入频道用新策略重建
-                    HttpCompat.allowInsecureTls = cbInsecure.isChecked
+                playSettings.zoomMode = zoomValues[spZoom.selectedItemPosition.coerceIn(0, zoomValues.size - 1)]
+                playSettings.zoomScalePct = etZoomScale.intOr(PlaybackSettings.DEF_ZOOM_SCALE).coerceIn(50, 200)
+                playSettings.decoderPriority =
+                    decoderValues[spDecoder.selectedItemPosition.coerceIn(0, decoderValues.size - 1)]
+                playSettings.renderMode =
+                    renderValues[spRender.selectedItemPosition.coerceIn(0, renderValues.size - 1)]
+                playSettings.audioEnabled = cbAudio.isChecked
+
+                HttpCompat.allowInsecureTls = playSettings.insecureTls
+
+                // 证书 / 解码器 / 渲染方式都在播放器或视图创建时固定，必须重建后生效
+                val needRebuild = oldTls != playSettings.insecureTls ||
+                    oldDecoder != playSettings.decoderPriority ||
+                    oldRender != playSettings.renderMode
+                if (needRebuild) {
+                    releaseIjkFallback()
                     playerManager?.release()
                     playerManager = null
                     stallDetector = null
-                    toast(if (cbInsecure.isChecked) "已开启忽略证书校验，重新进入频道生效" else "已恢复证书校验，重新进入频道生效")
+                    playerViewRef?.player = null
+                    playerViewRef = null
+                    videoHost.removeAllViews()
+                    toast("已保存，重新进入频道后生效")
+                } else {
+                    // 画面比例/缩放可以立即生效，不打断播放
+                    if (oldZoomMode != playSettings.zoomMode ||
+                        oldZoomScale != playSettings.zoomScalePct
+                    ) {
+                        applyVideoLayout()
+                    }
+                    // 音频开关立即生效
+                    if (oldAudio != playSettings.audioEnabled) {
+                        playerManager?.setAudioOutputEnabled(playSettings.audioEnabled)
+                        toast(if (playSettings.audioEnabled) "已开启声音" else "已关闭声音（仅视频）")
+                    } else {
+                        toast("参数已保存")
+                    }
                 }
                 statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
-                // 下次起播生效；若正在播放则提示重新进入
-                if (playerManager != null) toast("参数已保存，重新进入频道后生效") else toast("参数已保存")
             }
             .setNeutralButton("恢复默认") { _, _ ->
                 playSettings.reset()
@@ -1240,9 +1469,9 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         com.iptv.player.update.InstallResultReceiver.detach(this)
         uiHandler.removeCallbacks(hideStatsRunnable)
-        uiHandler.removeCallbacks(startWatchdog)
         uiHandler.removeCallbacks(pickerLongPressRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
+        releaseIjkFallback()
         playerManager?.release()
         playerManager = null
     }
@@ -1250,3 +1479,5 @@ class MainActivity : AppCompatActivity() {
 
 /** 直播页长按确认键呼出频道表的判定时长；短于这个时长仍按普通点按处理 */
 private const val PICKER_LONG_PRESS_MS = 600L
+/** IJK 兜底内核启动超时：超时视为不可用，回退到 Exo 无声播放 */
+private const val IJK_START_TIMEOUT_MS = 12_000L

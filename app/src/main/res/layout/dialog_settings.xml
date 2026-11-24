@@ -84,6 +84,70 @@
             android:textColor="@color/text_primary"
             android:textSize="13sp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="画面与解码"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary" />
+
+        <!-- 画面比例 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="画面比例" />
+            <Spinner
+                android:id="@+id/spZoomMode"
+                android:layout_width="170dp"
+                android:layout_height="wrap_content"
+                android:entries="@array/zoom_mode_labels" />
+        </LinearLayout>
+
+        <!-- 自定义缩放百分比 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="自定义缩放(50-200%)" />
+            <EditText android:id="@+id/etZoomScale" style="@style/SettingInput" android:inputType="number" />
+        </LinearLayout>
+
+        <!-- 解码器优先策略 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="解码器优先" />
+            <Spinner
+                android:id="@+id/spDecoder"
+                android:layout_width="170dp"
+                android:layout_height="wrap_content"
+                android:entries="@array/decoder_labels" />
+        </LinearLayout>
+
+        <!-- 渲染方式 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="渲染方式" />
+            <Spinner
+                android:id="@+id/spRender"
+                android:layout_width="170dp"
+                android:layout_height="wrap_content"
+                android:entries="@array/render_labels" />
+        </LinearLayout>
+
+        <!-- 音频开关（仅视频） -->
+        <CheckBox
+            android:id="@+id/cbAudio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:buttonTint="@color/brand_cyan"
+            android:text="输出声音（关闭=仅视频）"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="MP2/AC3 等音频编码依赖设备自带解码器：若出现「有画面没声音」或直接黑屏，程序会自动关闭音频继续播放；也可以在解码器优先里改软解、或把渲染方式换成 TextureView 再试。解码器/渲染方式修改后需重新进入频道生效。"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary" />
+
         <CheckBox
             android:id="@+id/cbAutoSwitch"
             android:layout_width="match_parent"
