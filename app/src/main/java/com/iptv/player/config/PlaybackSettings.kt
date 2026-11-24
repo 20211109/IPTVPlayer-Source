@@ -27,6 +27,14 @@ class PlaybackSettings(context: Context) {
         // 换 key 后所有人回落到 v1.9 的新默认（关闭），避免观看中被自动切台。
         const val KEY_AUTO_SWITCH = "auto_switch_on_stall_v2"  // 卡顿后是否自动换线路
 
+        // 画面缩放 / 比例
+        const val KEY_ZOOM_MODE = "zoom_mode"                  // fit / stretch / crop / scale
+        const val KEY_ZOOM_SCALE = "zoom_scale_pct"            // 自定义缩放百分比 50–200
+        // 解码与渲染
+        const val KEY_DECODER_PRIORITY = "decoder_priority"    // auto / hardware / software
+        const val KEY_RENDER_MODE = "render_mode"              // surface / texture
+        const val KEY_AUDIO_ENABLED = "audio_enabled"          // 关掉即「仅视频」
+
         // 默认值
         const val DEF_STALL_WINDOW = 12
         const val DEF_STALL_COUNT = 3
@@ -39,6 +47,10 @@ class PlaybackSettings(context: Context) {
         // 卡顿后至少攒够 4 秒再恢复，否则刚恢复就再次耗尽形成连环卡顿
         const val DEF_REBUFFER = 4000
         const val DEF_MAX_RETRY = 6
+        const val DEF_ZOOM_MODE = "fit"
+        const val DEF_ZOOM_SCALE = 100
+        const val DEF_DECODER_PRIORITY = "auto"
+        const val DEF_RENDER_MODE = "surface"
     }
 
     var stallWindowS: Int
@@ -91,6 +103,31 @@ class PlaybackSettings(context: Context) {
         get() = sp.getBoolean(KEY_INSECURE_TLS, true)
         set(v) = sp.edit().putBoolean(KEY_INSECURE_TLS, v).apply()
 
+    /** 画面比例：fit 适应 / stretch 拉伸铺满 / crop 裁切铺满 / scale 自定义缩放 */
+    var zoomMode: String
+        get() = sp.getString(KEY_ZOOM_MODE, DEF_ZOOM_MODE) ?: DEF_ZOOM_MODE
+        set(v) = sp.edit().putString(KEY_ZOOM_MODE, v).apply()
+
+    /** 自定义缩放百分比（50–200），仅在 zoomMode == "scale" 时生效 */
+    var zoomScalePct: Int
+        get() = sp.getInt(KEY_ZOOM_SCALE, DEF_ZOOM_SCALE)
+        set(v) = sp.edit().putInt(KEY_ZOOM_SCALE, v).apply()
+
+    /** 解码器优先策略：auto 自动 / hardware 硬解优先 / software 软解优先 */
+    var decoderPriority: String
+        get() = sp.getString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY) ?: DEF_DECODER_PRIORITY
+        set(v) = sp.edit().putString(KEY_DECODER_PRIORITY, v).apply()
+
+    /** 渲染方式：surface（省电、老盒子兼容好）/ texture（支持动画缩放、截图） */
+    var renderMode: String
+        get() = sp.getString(KEY_RENDER_MODE, DEF_RENDER_MODE) ?: DEF_RENDER_MODE
+        set(v) = sp.edit().putString(KEY_RENDER_MODE, v).apply()
+
+    /** 是否输出声音；关闭即「仅视频」（音频解码器缺失时最稳） */
+    var audioEnabled: Boolean
+        get() = sp.getBoolean(KEY_AUDIO_ENABLED, true)
+        set(v) = sp.edit().putBoolean(KEY_AUDIO_ENABLED, v).apply()
+
     fun reset() {
         sp.edit()
             .putInt(KEY_STALL_WINDOW, DEF_STALL_WINDOW)
@@ -104,6 +141,11 @@ class PlaybackSettings(context: Context) {
             .putBoolean(KEY_SHOW_STATS, false)
             .putBoolean(KEY_INSECURE_TLS, true)
             .putBoolean(KEY_AUTO_SWITCH, false)
+            .putString(KEY_ZOOM_MODE, DEF_ZOOM_MODE)
+            .putInt(KEY_ZOOM_SCALE, DEF_ZOOM_SCALE)
+            .putString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY)
+            .putString(KEY_RENDER_MODE, DEF_RENDER_MODE)
+            .putBoolean(KEY_AUDIO_ENABLED, true)
             .apply()
     }
 }
