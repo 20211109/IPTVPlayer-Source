@@ -374,9 +374,11 @@ class PlayerManager(
             }
 
             /**
-             * 音轨信息一出现就先看编码：AC-3 / MP2 频道不必等到「无声几秒」再切，
-             * 出画后立刻换到软解内核，用户几乎察觉不到中间态；
-             * 同时覆盖 HLS 切码率后音轨从 AAC 变成 AC-3 的情况。
+             * 音轨信息一出现就先看编码：**确认 Exo 解不了**才换软解内核，
+             * 不必等到「无声几秒」再切；同时覆盖 HLS 切码率后音轨从 AAC 变成 AC-3 的情况。
+             *
+             * 注意 needsSoftwareDecode 已经带上了「Exo 报告该轨不被支持」这一条件，
+             * 所以设备自带 MP2/AC-3 硬解的盒子（小米盒子 4 等）不会被误切到 VLC。
              */
             override fun onTracksChanged(tracks: Tracks) {
                 if (suspended || audioCompatApplied || videoOnlyRequested || !audioCompatOn) return
@@ -904,6 +906,9 @@ class PlayerManager(
         }
 
         audioChecked = true
+        // 两个条件都写清楚：①Exo 完全解不了（unknown 编码也算）②用户开了自动软解且编码在候选名单里
+        // 并且 Exo 确实解不了。设备自带 MP2/AC-3 硬解的盒子会走第一个条件为 false、
+        // 第二个条件也被 needsSoftwareDecode 内部挡掉，于是留在 Exo 主内核，声音照常。
         val needFallback = !info.hasUsableTrack ||
             (audioCompatOn && info.needsSoftwareDecode)
         if (needFallback) {

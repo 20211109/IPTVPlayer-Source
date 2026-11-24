@@ -347,6 +347,13 @@ class MainActivity : AppCompatActivity() {
             event.keyCode == KeyEvent.KEYCODE_ENTER ||
             event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
         ) {
+            // 软解内核（VLC）接管时没有 PlayerView 控制条，所以短按确认键被借去当
+            // 「暂停/继续」。但顶部栏的返回/换源/全屏也是按钮，焦点停在按钮上时
+            // 这一下必须是「点这个按钮」——否则会出现「点换源反而变成已暂停」。
+            // 只要焦点在按钮上，就整段交给系统焦点导航，不做任何拦截。
+            if (fallbackPlayer != null && isFocusOnTopBarButton()) {
+                return super.dispatchKeyEvent(event)
+            }
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
                     pickerLongPressFired = false
@@ -876,14 +883,16 @@ class MainActivity : AppCompatActivity() {
             toast("当前频道只有一条线路，没有可切换的备用源")
             return
         }
-        // 兜底内核接管期间换源：先交还控制权，让 Exo 重新起播新线路
-        if (fallbackPlayer != null) {
-            releaseVlcFallback()
-            playerViewRef?.visibility = View.VISIBLE
-            pm.setSuspended(false)
-        }
         val total = channel.sources.size
         SourcePickerDialog(this, channel, pm.playingSourceIndex) { index ->
+            // 兜底内核接管期间换源：先交还控制权，让 Exo 重新起播新线路。
+            // 注意必须等用户真的选了某条线路再释放 VLC —— 放在弹窗之前会把
+            // 「打开换源弹窗后又取消」变成黑屏：VLC 已停、Exo 也还停着。
+            if (fallbackPlayer != null) {
+                releaseVlcFallback()
+                playerViewRef?.visibility = View.VISIBLE
+                pm.setSuspended(false)
+            }
             if (pm.switchToSource(index)) {
                 currentLineLabel = "线路 ${index + 1}/$total"
                 setStatus("$currentLineLabel · 连接中…", R.color.yellow)
@@ -1397,9 +1406,20 @@ class MainActivity : AppCompatActivity() {
     /** 兜底内核没有 PlayerView 控制条：遥控确认键直接暂停/继续 */
     private fun toggleFallbackPlayback() {
         val fb = fallbackPlayer ?: return
+        // 焦点停在顶部栏按钮上时，这一下属于按钮（换源/返回/全屏），
+        // 触发暂停会把「点换源」变成「已暂停」，必须挡掉。
+        if (isFocusOnTopBarButton()) return
         val playing = fb.togglePlayPause()
         toast(if (playing) "继续播放" else "已暂停")
     }
+
+    /**
+     * 焦点是不是落在播放页顶部栏的按钮上。
+     *
+     * 软解内核接管期间，确认键短按被借去当暂停；而 TV 上焦点默认落在「返回」按钮，
+     * 用户按右键移到「换源」再按确认，就会被暂停逻辑吃掉，表现为「点一下只弹已暂停」。
+     */
+    private fun isFocusOnTopBarButton(): Boolean = currentFocus is Button
 
     /** TV/盒子播放时隐藏状态栏与导航栏，获得真正的全屏画面 */
     private fun hideSystemUi() {

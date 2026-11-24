@@ -19,10 +19,14 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 object AudioCodecSupport {
 
     /**
-     * 需要软件解码（FFmpeg）的音频编码。
+     * 「设备可能解不了」的音频编码 —— 只是**候选名单**，不是判决书。
      *
-     * 这里把 AC-3/E-AC-3 也算进来：盒子上「有解码器但只支持直通」的情况极常见，
-     * 此时 Exo 不会报错，只是没有声音，用户完全无从判断。统一交给软解内核最稳。
+     * 真正的切换条件见 [inspect] 里的 needsSoftwareDecode：必须同时满足
+     * 「编码在这份名单里」且「Exo 自己报这条轨不被支持」。
+     *
+     * 千万不能只看编码就切内核：小米盒子 4 这类 Amlogic 机型本身带 MP2/AC-3
+     * 硬解，Exo 放得好好的，一检测到 MP2 就切 VLC，反而把有声的频道弄成
+     * 画面缩角、遥控器失灵、还卡顿。
      */
     private val SOFTWARE_DECODE_MIMES = setOf(
         MimeTypes.AUDIO_AC3,
@@ -68,7 +72,10 @@ object AudioCodecSupport {
             label = labelOf(mime),
             hasUsableTrack = usable,
             hasAnyAudioTrack = any,
-            needsSoftwareDecode = mime != null && mime in SOFTWARE_DECODE_MIMES
+            // 关键：只有「编码在候选名单里」**并且**「Exo 明确解不了」才切软解。
+            // 设备自己能解（小米盒子 4 的 MP2/AC-3 硬解就是这种情况）时一律留在
+            // ExoPlayer 主内核，否则会把本来有声音的频道切到 VLC 上受二茬罪。
+            needsSoftwareDecode = mime != null && mime in SOFTWARE_DECODE_MIMES && !usable
         )
     }
 
