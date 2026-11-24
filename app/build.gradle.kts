@@ -27,8 +27,14 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 51
-        versionName = "1.51"
+        versionCode = 52
+        versionName = "1.52"
+
+        ndk {
+            // 只打真机 ABI：x86/x86_64 仅模拟器用，armeabi(ARMv5) 早已淘汰。
+            // VLC 的 so 很大，砍掉这三个能省下将近一半体积。
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
@@ -58,9 +64,12 @@ android {
 
     packaging {
         jniLibs {
-            // IJK 的 .so 体积较大：压缩打包可把升级包控制在 ~15MB，
-            // 避免自动升级下载量翻倍（安装时由系统解压）。
+            // VLC 的 so 未压缩时有 90MB+（arm64 52MB / armv7 39MB），必须压缩打包：
+            // 压缩后约 42MB，升级包才控制得住；安装时由系统解压，运行性能不受影响。
             useLegacyPackaging = true
+            // VLC 自带 libc++_shared.so；将来若再引入别的 native 库也可能带同名文件，
+            // 出现重复时保留一份，避免 "More than one file was found" 直接构建失败。
+            pickFirsts += "**/libc++_shared.so"
         }
     }
 
@@ -91,10 +100,10 @@ dependencies {
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
 
-    // IJK 内核：仅在设备缺少 MP2/AC3 等音频解码器时兜底（正常情况下全程走 ExoPlayer）。
-    // 视频走 MediaCodec 硬解，音频由 IJK 内置 FFmpeg 软解，确保 MP2 一定能出声。
-    implementation("io.github.blankyn:ijkplayer-java:0.0.16")
-    implementation("io.github.blankyn:ijkplayer-ex_so:0.0.16")
+    // VLC 内核：仅在设备缺少 MP2/AC-3/E-AC-3 等音频解码器时兜底（正常播放全程走 ExoPlayer）。
+    // 换掉原来的 IJK，原因是它预编译的 FFmpeg 只含 aac/flac/mp3，连 MP2、AC-3 都没有，
+    // 「有画面没声音」正是它造成的。VLC 的 FFmpeg 是完整构建，mp2/AC-3/E-AC-3/DTS 全覆盖。
+    implementation("org.videolan.android:libvlc-all:3.7.8")
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

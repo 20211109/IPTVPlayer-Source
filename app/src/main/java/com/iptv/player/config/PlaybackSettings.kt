@@ -103,7 +103,7 @@ class PlaybackSettings(context: Context) {
         set(v) = sp.edit().putBoolean(KEY_AUTO_SWITCH, v).apply()
 
     /**
-     * AC-3 / E-AC-3 / MP2 / DTS 音轨自动交给软解内核（IJK + FFmpeg）。
+     * AC-3 / E-AC-3 / MP2 / DTS 音轨自动交给软解内核（VLC + FFmpeg）。
      * 默认开启：这类音轨在盒子上经常「有解码器但只支持直通」，表现为有画面没声音且不报错；
      * 主动切软解是唯一直观的解决办法。设备本身能正常解 AC-3 的用户可以关掉。
      */

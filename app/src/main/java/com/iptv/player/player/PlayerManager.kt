@@ -176,7 +176,7 @@ class PlayerManager(
     /**
      * 音频编码不适合硬解（AC-3 / E-AC-3 / MP2 / DTS 等）而需要外部内核兜底时回调。
      * 参数：当前线路 / 音频编码名称（AC-3、MP2…，用于状态提示）。
-     * 界面据此启动 IJK 内核（视频硬解 + 音频 FFmpeg 软解）。
+     * 界面据此启动 VLC 内核（视频硬解 + 音频 FFmpeg 软解）。
      * 若界面没有接管（未注册回调），playerManager 会自动退化为无声播放。
      */
     var onAudioFallback: ((Source, String) -> Unit)? = null
@@ -420,7 +420,7 @@ class PlayerManager(
                 }
 
                 // 音频编码设备不支持（典型：只有 MP3 解码器、没有 MP2 解码器）：
-                // 直接换源/换台也播不了，反而会黑屏。优先交给 IJK 兜底内核（音频 FFmpeg 软解），
+                // 直接换源/换台也播不了，反而会黑屏。优先交给 VLC 兜底内核（音频 FFmpeg 软解），
                 // 界面未接管时才退化为关闭音频轨继续出画面。
                 if (!audioCompatApplied && isAudioDecodeError(error)) {
                     triggerAudioFallback(currentSource, currentAudioInfo())
@@ -549,7 +549,7 @@ class PlayerManager(
     }
 
     /**
-     * 把当前线路交给软解内核（IJK：视频硬解 + 音频 FFmpeg 软解）。
+     * 把当前线路交给软解内核（VLC：视频硬解 + 音频 FFmpeg 软解）。
      *
      * 进入前先关闭 Exo 的音频轨：软解内核启动需要一两秒，这段时间里 Exo 若继续
      * 尝试解码会重复抛错，表现为状态栏一直在报错。
@@ -585,7 +585,7 @@ class PlayerManager(
     /**
      * 兜底内核接管 / 交还时调用。
      * 挂起时会停掉 Exo 并撤销所有巡检与重连——部分盒子的硬解码器实例有限，
-     * 不彻底停止 Exo 会占着 MediaCodec，导致 IJK 起不来。
+     * 不彻底停止 Exo 会占着 MediaCodec，导致 VLC 起不来。
      */
     fun setSuspended(value: Boolean) {
         if (suspended == value) return
@@ -697,6 +697,38 @@ class PlayerManager(
                 .ifEmpty { channel.sources.indices.toList() }
         }
         switchTo(ranked.first(), C.TIME_UNSET)
+        return true
+    }
+
+    /** 当前正在播放的线路序号（0 起）；尚未起播时为 -1。供「手动换源」弹窗标出当前项。 */
+    val playingSourceIndex: Int get() = currentSourceIndex
+
+    /**
+     * 手动切到指定的第 index 条线路（0 起）。
+     *
+     * 与 [switchToNextSourceManually] 的区别：那个只能顺序切「下一条」，遇到
+     * 「前几条都能播但都不理想」时就绕不过去；这里由用户直接指定目标线路。
+     *
+     * 无视锁台、冷却与熔断——用户明确点了某条线路就必须立刻切过去；
+     * 同时清空自动换线的失败记录，避免旧结论影响新线路的起播判断。
+     */
+    fun switchToSource(index: Int): Boolean {
+        val channel = currentChannel ?: return false
+        if (index !in channel.sources.indices) return false
+        if (index == currentSourceIndex) return false
+
+        hasEverPlayed = false
+        givenUp = false
+        startupRounds = 0
+        triedIndices.clear()
+        freezeRecoveries = 0
+        freezeTimestamps.clear()
+        freezeSwitchChain = 0
+        stableSinceMs = 0L
+        stallSwitchChain = 0
+        stallSwitchCooldownUntilMs = 0L
+        freezeSwitchGraceUntilMs = System.currentTimeMillis() + FREEZE_SWITCH_GRACE_MS
+        switchTo(index, C.TIME_UNSET)
         return true
     }
 

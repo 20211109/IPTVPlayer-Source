@@ -390,7 +390,7 @@
                     android:paddingStart="12dp"
                     android:paddingEnd="12dp"
                     android:layout_marginStart="10dp"
-                    android:text="换线"
+                    android:text="换源"
                     android:textSize="12sp" />
 
                 <Button

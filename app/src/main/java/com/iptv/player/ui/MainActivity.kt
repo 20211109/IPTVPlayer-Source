@@ -39,7 +39,7 @@ import com.iptv.player.data.M3uParser
 import com.iptv.player.data.Source
 import com.iptv.player.data.SourceRepository
 import com.iptv.player.epg.EpgManager
-import com.iptv.player.player.IjkFallbackPlayer
+import com.iptv.player.player.VlcFallbackPlayer
 import com.iptv.player.player.PlayerManager
 import com.iptv.player.player.StallDetector
 import com.iptv.player.update.UpdateInfo
@@ -126,16 +126,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvEpgNow: TextView
     private lateinit var tvEpgNext: TextView
     private lateinit var btnFullscreen: Button
-    /** 手动换线按钮：自动换源仍不理想时，用户可主动切到下一条线路 */
+    /** 手动换源按钮：弹出当前频道全部线路由用户指定 */
     private lateinit var btnSwitchLine: Button
     /** 播放视图容器：SurfaceView / TextureView 二选一 */
     private lateinit var videoHost: FrameLayout
     /** 当前 PlayerView（切换渲染方式时整体重建） */
     private var playerViewRef: PlayerView? = null
-    /** MP2 等设备缺失音频解码器时临时接管的 IJK 兜底播放器（视频硬解 + 音频软件解码） */
-    private var ijkFallback: IjkFallbackPlayer? = null
+    /** MP2 等设备缺失音频解码器时临时接管的 VLC 兜底播放器（视频硬解 + 音频软件解码） */
+    private var fallbackPlayer: VlcFallbackPlayer? = null
     /** 兜底内核启动超时计时器 */
-    private var ijkTimeoutRunnable: Runnable? = null
+    private var fallbackTimeoutRunnable: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -340,8 +340,8 @@ class MainActivity : AppCompatActivity() {
                         return true
                     }
                     // 兜底内核没有 PlayerView 控制条：短按确认键直接暂停/继续
-                    if (ijkFallback != null) {
-                        toggleIjkPlayback()
+                    if (fallbackPlayer != null) {
+                        toggleFallbackPlayback()
                         return true
                     }
                 }
@@ -811,7 +811,7 @@ class MainActivity : AppCompatActivity() {
     /** 打开频道开始播放 */
     private fun openChannel(channel: Channel) {
         // 换台/重新起播前，先释放可能存在的兜底内核并把 Exo 视图恢复显示
-        releaseIjkFallback()
+        releaseVlcFallback()
         playerViewRef?.visibility = View.VISIBLE
         currentChannel = channel
         repo.setLastChannelName(channel.name)
@@ -843,23 +843,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 手动换线：无视「锁台」直接切到下一条线路。
-     * 自动换源在「已成功播放过」时会锁台只在原线路重连，用户想主动避开某条
-     * 画质差/频繁卡顿但又能播的线路时，需要一个明确的入口。
+     * 手动换源：弹出当前频道的全部线路，由用户指定要切哪一条。
+     *
+     * 早先是「顺序切下一条」，但实际用起来最需要的是「我就想跳过第 1 条去试第 3 条」，
+     * 顺序切换绕不过去，而且自动换线有冷却/熔断，用户主动操作时不该被这些保护挡住。
      */
     private fun switchSourceManually() {
         val pm = playerManager ?: return
-        // 兜底内核接管期间换线：先交还控制权，让 Exo 重新起播新线路
-        if (ijkFallback != null) {
-            releaseIjkFallback()
+        val channel = currentChannel ?: return
+        if (channel.sources.size <= 1) {
+            toast("当前频道只有一条线路，没有可切换的备用源")
+            return
+        }
+        // 兜底内核接管期间换源：先交还控制权，让 Exo 重新起播新线路
+        if (fallbackPlayer != null) {
+            releaseVlcFallback()
             playerViewRef?.visibility = View.VISIBLE
             pm.setSuspended(false)
         }
-        if (pm.switchToNextSourceManually()) {
-            toast("已切换到下一条线路")
-        } else {
-            toast("当前频道没有其他线路可切换")
-        }
+        val total = channel.sources.size
+        SourcePickerDialog(this, channel, pm.playingSourceIndex) { index ->
+            if (pm.switchToSource(index)) {
+                currentLineLabel = "线路 ${index + 1}/$total"
+                setStatus("$currentLineLabel · 连接中…", R.color.yellow)
+            }
+        }.show()
     }
 
     /** 仅手机进入横屏；平板/TV 保持原方向 */
@@ -1000,10 +1008,10 @@ class MainActivity : AppCompatActivity() {
         pm.onStartTimeoutSwitched = {
             runOnUiThread { toast("这条线路无响应，已自动换线路") }
         }
-        // 设备缺少 AC-3 / MP2 等音频解码器时：临时切换到 IJK 兜底内核（视频硬解 + 音频软解），
+        // 设备缺少 AC-3 / MP2 等音频解码器时：临时切换到 VLC 兜底内核（视频硬解 + 音频软解），
         // 保证这类频道一定出声；兜底内核也起不来时再退化为无声播放。
         pm.onAudioFallback = { source, codec ->
-            runOnUiThread { startIjkFallback(source, codec) }
+            runOnUiThread { startVlcFallback(source, codec) }
         }
         pm.onReconnecting = { attempt ->
             runOnUiThread {
@@ -1086,8 +1094,8 @@ class MainActivity : AppCompatActivity() {
      * SurfaceView（老盒子默认）也能正确生效。
      */
     private fun applyVideoLayout() {
-        // 兜底内核（IJK）有自己的一套画面比例计算，同步应用同一份缩放配置
-        ijkFallback?.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
+        // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置
+        fallbackPlayer?.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
         val pv = playerViewRef ?: return
         val mode = playSettings.zoomMode
         pv.resizeMode = when (mode) {
@@ -1125,30 +1133,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 启动 IJK 兜底内核：视频默认 MediaCodec 硬解，音频由 FFmpeg 软解，
+     * 启动 VLC 兜底内核：视频优先硬解、驱动不允许时自动退回软解，音频由 FFmpeg 解码，
      * 专门解决 AC-3 / E-AC-3 / MP2 音轨「有画面没声音」的问题。
      *
      * @param codecLabel 识别到的音频编码（AC-3、MP2…），仅用于状态提示
-     * @param attempt 0 = 首次（视频硬解）；1 = 重试（视频也软解，优先保住声音）
      */
-    private fun startIjkFallback(source: Source, codecLabel: String = "音频", attempt: Int = 0) {
+    private fun startVlcFallback(source: Source, codecLabel: String = "音频") {
         val pm = playerManager ?: return
         // 同一时间只保留一个兜底内核
-        releaseIjkFallback()
-        // 必须先停掉 Exo：部分盒子的硬解码器实例有限，Exo 不释放 IJK 就起不来
+        releaseVlcFallback()
+        // 必须先停掉 Exo：硬解码器实例有限，Exo 不释放 VLC 就起不来
         pm.setSuspended(true)
         playerViewRef?.visibility = View.GONE
         pbLoading.visibility = View.VISIBLE
         // 编码名缺失时（例如解码失败路径拿不到轨道信息）避免出现「音频 音频」的重复文案
         val audioDesc = if (codecLabel.isBlank() || codecLabel == "音频") "音频" else "$codecLabel 音频"
-        setStatus(
-            if (attempt == 0) {
-                "$currentLineLabel · $audioDesc，兼容内核启动中…"
-            } else {
-                "$currentLineLabel · $audioDesc，改用软解视频重试…"
-            },
-            R.color.yellow
-        )
+        setStatus("$currentLineLabel · $audioDesc，兼容内核启动中…", R.color.yellow)
 
         var handled = false
         var prepared = false
@@ -1156,7 +1156,7 @@ class MainActivity : AppCompatActivity() {
         fun giveUp(reason: String) {
             if (handled) return
             handled = true
-            releaseIjkFallback()
+            releaseVlcFallback()
             playerViewRef?.visibility = View.VISIBLE
             pbLoading.visibility = View.GONE
             playerManager?.continueWithoutAudio()
@@ -1164,56 +1164,45 @@ class MainActivity : AppCompatActivity() {
             setStatus("$currentLineLabel · 音频编码不支持，已无声播放", R.color.yellow)
         }
 
-        fun handleFailure(reason: String) {
-            if (handled) return
-            // 首次失败：再用「视频软解」重试一次。部分盒子上 IJK 与 MediaCodec 组合起不来，
-            // 但纯软解可以正常出声；对这类频道来说「有声音」比硬解更重要。
-            if (attempt == 0) {
-                handled = true
-                startIjkFallback(source, codecLabel, 1)
-                return
-            }
-            giveUp(reason)
-        }
-
-        val fallback = IjkFallbackPlayer(
+        val fallback = VlcFallbackPlayer(
             this,
             videoHost,
             onPrepared = {
-                if (!prepared) {
+                if (!prepared && !handled) {
                     prepared = true
-                    ijkTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
-                    ijkTimeoutRunnable = null
+                    fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
+                    fallbackTimeoutRunnable = null
                     pbLoading.visibility = View.GONE
+                    // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
                     setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 }
             },
-            onFailed = { reason -> handleFailure(reason) }
+            onFailed = { reason -> giveUp(reason) }
         )
-        ijkFallback = fallback
+        fallbackPlayer = fallback
         fallback.applyLayout(playSettings.zoomMode, playSettings.zoomScalePct)
-        val started = fallback.play(source.url, softwareVideo = attempt > 0)
-        if (!started) {
-            // play() 内部已回调 onFailed（重试或降级），这里兜住「没有任何回调」的极端情况
-            handleFailure("启动失败")
+        if (!fallback.play(source.url)) {
+            // play() 内部已回调 onFailed，这里兜住「没有任何回调」的极端情况
+            giveUp("启动失败")
             return
         }
-        val timeout = Runnable { handleFailure("启动超时") }
-        ijkTimeoutRunnable = timeout
-        uiHandler.postDelayed(timeout, IJK_START_TIMEOUT_MS)
+        // VLC 自带硬解失败自动降级，不需要像 IJK 那样换一套参数重试，超时即判失败
+        val timeout = Runnable { giveUp("启动超时") }
+        fallbackTimeoutRunnable = timeout
+        uiHandler.postDelayed(timeout, FALLBACK_START_TIMEOUT_MS)
     }
 
     /** 释放兜底内核（如果有）。调用方负责恢复 PlayerView 的显示。 */
-    private fun releaseIjkFallback() {
-        ijkTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
-        ijkTimeoutRunnable = null
-        ijkFallback?.release()
-        ijkFallback = null
+    private fun releaseVlcFallback() {
+        fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
+        fallbackTimeoutRunnable = null
+        fallbackPlayer?.release()
+        fallbackPlayer = null
     }
 
     /** 兜底内核没有 PlayerView 控制条：遥控确认键直接暂停/继续 */
-    private fun toggleIjkPlayback() {
-        val fb = ijkFallback ?: return
+    private fun toggleFallbackPlayback() {
+        val fb = fallbackPlayer ?: return
         val playing = fb.togglePlayPause()
         toast(if (playing) "继续播放" else "已暂停")
     }
@@ -1305,7 +1294,7 @@ class MainActivity : AppCompatActivity() {
         pickerDialog?.dismiss()
         pickerDialog = null
         pbLoading.visibility = View.GONE
-        releaseIjkFallback()
+        releaseVlcFallback()
         playerViewRef?.visibility = View.VISIBLE
         playerManager?.player?.stop()
         // 退出播放后恢复正常息屏策略，避免列表页也一直亮着
@@ -1436,7 +1425,7 @@ class MainActivity : AppCompatActivity() {
                     oldDecoder != playSettings.decoderPriority ||
                     oldRender != playSettings.renderMode
                 if (needRebuild) {
-                    releaseIjkFallback()
+                    releaseVlcFallback()
                     stallDetector?.release()
                     playerManager?.release()
                     playerManager = null
@@ -1509,7 +1498,7 @@ class MainActivity : AppCompatActivity() {
         uiHandler.removeCallbacks(hideStatsRunnable)
         uiHandler.removeCallbacks(pickerLongPressRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
-        releaseIjkFallback()
+        releaseVlcFallback()
         stallDetector?.release()
         stallDetector = null
         playerManager?.release()
@@ -1519,5 +1508,5 @@ class MainActivity : AppCompatActivity() {
 
 /** 直播页长按确认键呼出频道表的判定时长；短于这个时长仍按普通点按处理 */
 private const val PICKER_LONG_PRESS_MS = 600L
-/** IJK 兜底内核启动超时：超时视为不可用，回退到 Exo 无声播放 */
-private const val IJK_START_TIMEOUT_MS = 12_000L
+/** VLC 兜底内核启动超时：超时视为不可用，回退到 Exo 无声播放 */
+private const val FALLBACK_START_TIMEOUT_MS = 12_000L
