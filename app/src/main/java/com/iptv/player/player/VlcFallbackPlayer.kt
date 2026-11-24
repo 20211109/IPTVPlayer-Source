@@ -11,7 +11,6 @@ import android.widget.FrameLayout
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
-import org.videolan.libvlc.interfaces.AbstractVLCEvent
 
 /**
  * 设备自带解码器缺失时的兜底播放器，基于 libVLC。
@@ -83,7 +82,9 @@ class VlcFallbackPlayer(
             vout.attachViews()
 
             mp.setEventListener(object : MediaPlayer.EventListener {
-                override fun onEvent(event: AbstractVLCEvent) {
+                // 注意：3.6.x 这里声明的是 MediaPlayer.Event；3.7.x 改成了 AbstractVLCEvent，
+                // 本项目锁 3.6.5（3.7 要求 compileSdk 36），所以必须用具体子类做参数。
+                override fun onEvent(event: MediaPlayer.Event) {
                     if (released) return
                     when (event.type) {
                         // Playing 才是「真的有输出了」：此时音频/视频轨都已解出来，
