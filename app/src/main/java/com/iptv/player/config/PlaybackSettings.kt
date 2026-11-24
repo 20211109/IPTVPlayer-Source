@@ -31,6 +31,8 @@ class PlaybackSettings(context: Context) {
         const val KEY_AUDIO_COMPAT = "audio_compat_v1"
         // 检测到对称黑边时自动放大画面直到填满（换台/换源会重新检测）
         const val KEY_AUTO_CROP = "auto_crop_v1"
+        // 去黑边强度：只消除一部分黑边，用「少裁一点画面」换「黑边窄一点」
+        const val KEY_AUTO_CROP_STRENGTH = "auto_crop_strength_v1"
 
         // 画面缩放 / 比例
         const val KEY_ZOOM_MODE = "zoom_mode"                  // fit / stretch / crop / scale
@@ -124,6 +126,18 @@ class PlaybackSettings(context: Context) {
         set(v) = sp.edit().putBoolean(KEY_AUTO_CROP, v).apply()
 
     /**
+     * 去黑边强度：0 温和（消除一半黑边）/ 1 标准（消除四分之三）/ 2 彻底（完全铺满）/ 3 拉伸铺满。
+     *
+     * 默认「温和」而不是「彻底」：16:9 屏幕上看 4:3 频道，想去掉全部黑边就必须裁掉
+     * 上下各 12.5% 的画面（或把画面横向拉宽 33%），很多人会觉得「画面看不全了」。
+     * 只消除一半黑边时画面只裁 4% 左右，黑边却已明显变窄。
+     * 3 = 拉伸铺满：一点不裁，但画面横向变宽（4:3 内容拉成 16:9 大约宽 33%）。
+     */
+    var autoCropStrength: Int
+        get() = sp.getInt(KEY_AUTO_CROP_STRENGTH, 0)
+        set(v) = sp.edit().putInt(KEY_AUTO_CROP_STRENGTH, v.coerceIn(0, 3)).apply()
+
+    /**
      * 忽略 HTTPS 证书校验。
      * 默认开启：IPTV 源大量使用自签名/过期证书，关着会让整条线路直接拉流失败（黑屏），
      * 对普通用户来说「能看」优先于严格校验；需要严格校验的用户可以自己关掉。
@@ -172,6 +186,7 @@ class PlaybackSettings(context: Context) {
             .putBoolean(KEY_AUTO_SWITCH, true)
             .putBoolean(KEY_AUDIO_COMPAT, true)
             .putBoolean(KEY_AUTO_CROP, true)
+            .putInt(KEY_AUTO_CROP_STRENGTH, 0)
             .putString(KEY_ZOOM_MODE, DEF_ZOOM_MODE)
             .putInt(KEY_ZOOM_SCALE, DEF_ZOOM_SCALE)
             .putString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY)

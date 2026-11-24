@@ -143,6 +143,8 @@ class MainActivity : AppCompatActivity() {
      * 只是运行时状态，不落 SharedPreferences —— 每次换台/换源都要按新画面重新判断。
      */
     private var autoCropPct = 100
+    /** 强度选「拉伸铺满」时置位：不裁画面，直接横向拉宽填满 */
+    private var autoCropStretch = false
     /** 本轮采样次数（限制重试，避免暗场频道反复采样耗电） */
     private var autoCropTries = 0
     /** 上一次采样算出的倍数，用于「连续两次一致才动手」的确认 */
@@ -1121,9 +1123,14 @@ class MainActivity : AppCompatActivity() {
         // 自动去黑边只在「适应屏幕」时接管：用户手动选了裁切/拉伸/自定义缩放，就以用户为准，
         // 否则会出现「我明明选了裁切，它又给我改回去」的怪异行为。
         val autoPct = autoCropPct.coerceIn(100, 175)
-        val autoActive = autoPct > 102 && playSettings.zoomMode == "fit"
-        val mode = if (autoActive) "scale" else playSettings.zoomMode
-        val pct = if (autoActive) autoPct else playSettings.zoomScalePct.coerceIn(50, 200)
+        val autoActive = (autoPct > 102 || autoCropStretch) && playSettings.zoomMode == "fit"
+        // 拉伸档：不裁画面，把容器直接改回整屏并让视频拉伸填满（横向变宽）
+        val mode = when {
+            !autoActive -> playSettings.zoomMode
+            autoCropStretch -> "stretch"
+            else -> "scale"
+        }
+        val pct = if (autoActive && !autoCropStretch) autoPct else playSettings.zoomScalePct.coerceIn(50, 200)
         // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置
         fallbackPlayer?.applyLayout(mode, pct)
         val pv = playerViewRef ?: return
@@ -1171,8 +1178,9 @@ class MainActivity : AppCompatActivity() {
         autoCropTries = 0
         autoCropCandidate = 0
         autoCropStableHits = 0
-        if (autoCropPct != 100) {
+        if (autoCropPct != 100 || autoCropStretch) {
             autoCropPct = 100
+            autoCropStretch = false
             applyVideoLayout()
         }
     }
@@ -1229,6 +1237,21 @@ class MainActivity : AppCompatActivity() {
         uiHandler.postDelayed(autoCropRunnable, AUTO_CROP_RETRY_MS)
     }
 
+    /**
+     * 按用户选的强度折算实际放大倍数。
+     * 几何上「铺满」和「看全」不可兼得：要消掉 4:3 频道的左右黑边，要么裁掉上下 12.5%，
+     * 要么横向拉宽 33%。所以这里默认只消除一半黑边——画面只裁 4% 左右，黑边已明显变窄。
+     */
+    private fun cropStrengthPct(needed: Int): Int {
+        if (needed <= 102) return 100
+        val ratio = when (playSettings.autoCropStrength) {
+            2 -> 1f      // 彻底：完全铺满
+            1 -> 0.75f   // 标准：消除四分之三
+            else -> 0.5f // 温和：消除一半
+        }
+        return (100 + (needed - 100) * ratio).toInt().coerceIn(100, 175)
+    }
+
     private fun onBlackBarSample(bmp: android.graphics.Bitmap?) {
         if (isFinishing || isDestroyed) return
         val insets = bmp?.let { BlackBarDetector.analyze(it) }
@@ -1237,16 +1260,28 @@ class MainActivity : AppCompatActivity() {
             retryAutoCrop()
             return
         }
-        val pct = BlackBarDetector.requiredScalePct(insets)
-        if (pct <= 102) {
-            // 这条源本来就没黑边（换源后很常见）：把上一轮可能存在的放大撤掉
+        val needed = BlackBarDetector.requiredScalePct(insets)
+        if (needed <= 102) {
+            // 这条源本来就没黑边（换源后很常见）：把上一轮可能存在的处理撤掉
             autoCropDone = true
-            if (autoCropPct != 100) {
+            if (autoCropPct != 100 || autoCropStretch) {
                 autoCropPct = 100
+                autoCropStretch = false
                 applyVideoLayout()
             }
             return
         }
+        // 拉伸档：一点画面都不裁，直接把容器改回整屏让视频拉伸填满
+        if (playSettings.autoCropStrength == 3) {
+            autoCropDone = true
+            if (autoCropStretch) return
+            autoCropStretch = true
+            autoCropPct = 100
+            applyVideoLayout()
+            toast("检测到黑边，已拉伸铺满（画面会略变宽）")
+            return
+        }
+        val pct = cropStrengthPct(needed)
         // 连续两次算出同一个值才应用：切源瞬间和暗场可能摸到一帧假黑边
         if (pct == autoCropCandidate) {
             autoCropStableHits++
@@ -1259,8 +1294,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         autoCropDone = true
-        if (pct == autoCropPct) return
+        if (pct == autoCropPct && !autoCropStretch) return
         autoCropPct = pct
+        autoCropStretch = false
         applyVideoLayout()
         toast("检测到黑边，画面已放大到 $pct%")
     }
@@ -1546,6 +1582,7 @@ class MainActivity : AppCompatActivity() {
         val cbAudio = view.findViewById<android.widget.CheckBox>(R.id.cbAudio)
         val cbAudioCompat = view.findViewById<android.widget.CheckBox>(R.id.cbAudioCompat)
         val cbAutoCrop = view.findViewById<android.widget.CheckBox>(R.id.cbAutoCrop)
+        val spCropStrength = view.findViewById<android.widget.Spinner>(R.id.spCropStrength)
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
@@ -1570,6 +1607,7 @@ class MainActivity : AppCompatActivity() {
         cbAudio.isChecked = playSettings.audioEnabled
         cbAudioCompat.isChecked = playSettings.audioCompat
         cbAutoCrop.isChecked = playSettings.autoCrop
+        spCropStrength.setSelection(playSettings.autoCropStrength.coerceIn(0, 3))
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("播放参数设置")
@@ -1583,6 +1621,7 @@ class MainActivity : AppCompatActivity() {
                 val oldRender = playSettings.renderMode
                 val oldAudio = playSettings.audioEnabled
                 val oldAutoCrop = playSettings.autoCrop
+                val oldCropStrength = playSettings.autoCropStrength
                 // 这一组只影响「播放引擎怎么建」与「卡顿检测策略」，
                 // 全部在 PlayerManager / StallDetector 构造时读取，改完必须重建才生效
                 val oldEngine = listOf(
@@ -1610,6 +1649,7 @@ class MainActivity : AppCompatActivity() {
                 playSettings.audioEnabled = cbAudio.isChecked
                 playSettings.audioCompat = cbAudioCompat.isChecked
                 playSettings.autoCrop = cbAutoCrop.isChecked
+                playSettings.autoCropStrength = spCropStrength.selectedItemPosition.coerceIn(0, 3)
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls
                 statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
@@ -1641,7 +1681,9 @@ class MainActivity : AppCompatActivity() {
                     // 画面比例/缩放可以立即生效，不打断播放
                     val zoomChanged = oldZoomMode != playSettings.zoomMode ||
                         oldZoomScale != playSettings.zoomScalePct
-                    if (zoomChanged || oldAutoCrop != playSettings.autoCrop) {
+                    if (zoomChanged || oldAutoCrop != playSettings.autoCrop ||
+                        oldCropStrength != playSettings.autoCropStrength
+                    ) {
                         // 比例或开关变了：先撤掉上一轮自动放大，再按新设置重排；
                         // 开关重新打开时立刻对当前画面采样一次
                         resetAutoCrop()

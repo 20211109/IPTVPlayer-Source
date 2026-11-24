@@ -33,4 +33,12 @@
         <item>surface</item>
         <item>texture</item>
     </string-array>
+
+    <!-- 去黑边强度：0 温和 / 1 标准 / 2 彻底 / 3 拉伸（顺序与 PlaybackSettings.autoCropStrength 一致） -->
+    <string-array name="auto_crop_strength_labels">
+        <item>温和（黑边减半，几乎不裁画面）</item>
+        <item>标准（黑边很窄，轻微裁边）</item>
+        <item>彻底（完全铺满，会裁掉上下）</item>
+        <item>拉伸铺满（不裁画面，横向变宽）</item>
+    </string-array>
 </resources>
