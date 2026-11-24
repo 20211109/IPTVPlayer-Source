@@ -34,12 +34,13 @@
         <item>texture</item>
     </string-array>
 
-    <!-- 去黑边档位：0 温和 / 1 标准 / 2 彻底 / 3 拉伸（顺序与 PlaybackSettings.autoCropStrength 一致）
-         每一档决定的是「什么情况才动手」，动手时一律是整幅裁切铺满（RESIZE_MODE_ZOOM）。 -->
+    <!-- 去黑边档位：0 自动 / 1 一律裁切 / 2 保留原比例 / 3 一律拉伸
+         顺序与 PlaybackSettings.autoCropStrength 一致；档位只决定「怎么摆画面」，
+         具体判断在 MainActivity.decideCrop()，主内核与软解内核共用同一套规则。 -->
     <string-array name="auto_crop_strength_labels">
-        <item>温和（只修 16:9 屏上的 4:3 老频道）</item>
-        <item>标准（4:3 / 3:2 / 16:10 都修）</item>
-        <item>彻底（有黑边就铺满，会裁得多）</item>
-        <item>拉伸铺满（不裁画面，横向变宽）</item>
+        <item>自动（推荐：按设备自动选）</item>
+        <item>一律裁切铺满（会裁掉边缘）</item>
+        <item>保留原比例（宁可留黑边）</item>
+        <item>一律拉伸铺满（画面变宽）</item>
     </string-array>
 </resources>

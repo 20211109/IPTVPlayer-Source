@@ -27,8 +27,8 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 59
-        versionName = "1.59"
+        versionCode = 60
+        versionName = "1.60"
 
         ndk {
             // 只打真机 ABI：x86/x86_64 仅模拟器用，armeabi(ARMv5) 早已淘汰。
