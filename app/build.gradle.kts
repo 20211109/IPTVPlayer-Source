@@ -103,7 +103,9 @@ dependencies {
     // VLC 内核：仅在设备缺少 MP2/AC-3/E-AC-3 等音频解码器时兜底（正常播放全程走 ExoPlayer）。
     // 换掉原来的 IJK，原因是它预编译的 FFmpeg 只含 aac/flac/mp3，连 MP2、AC-3 都没有，
     // 「有画面没声音」正是它造成的。VLC 的 FFmpeg 是完整构建，mp2/AC-3/E-AC-3/DTS 全覆盖。
-    implementation("org.videolan.android:libvlc-all:3.7.8")
+    // 版本锁 3.6.5：3.7.x 的 aar 声明 minCompileSdk=36，而本项目 compileSdk 35 / AGP 8.5.2，
+    // 升级会直接构建失败；3.6.5 的 minCompileSdk=1，API 与 3.7.x 完全一致。
+    implementation("org.videolan.android:libvlc-all:3.6.5")
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
