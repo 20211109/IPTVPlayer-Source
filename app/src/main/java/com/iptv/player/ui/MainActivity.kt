@@ -1166,33 +1166,32 @@ class MainActivity : AppCompatActivity() {
         // 否则会出现「我明明选了裁切，它又给我改回去」的怪异行为。
         val autoPct = autoCropPct.coerceIn(100, 175)
         val autoActive = (autoPct > 102 || autoCropStretch) && playSettings.zoomMode == "fit"
-        // 拉伸档：不裁画面，把容器直接改回整屏并让视频拉伸填满（横向变宽）
+        // 去黑边的实现方式是「铺满」：画面放大到刚好盖住整屏，多出来的部分裁掉。
+        //
+        // 1.58 的实现是「把播放视图撑到比屏幕还大」，在 SurfaceView（盒子默认渲染方式）
+        // 上并不可靠：撑出屏幕的图层会被系统压回可见范围，画面没有跟着变大，外面的黑底
+        // 却变大了 —— 用户看到的正是「放大了，左右黑边反而更多」。
+        // 改用 Media3 自己的裁切模式，由 AspectRatioFrameLayout 算裁切、不动视图尺寸，
+        // 结果确定、不闪不抖，SurfaceView / TextureView 都一样。
         val mode = when {
             !autoActive -> playSettings.zoomMode
             autoCropStretch -> "stretch"
-            else -> "scale"
+            else -> "crop"
         }
-        val pct = if (autoActive && !autoCropStretch) autoPct else playSettings.zoomScalePct.coerceIn(50, 200)
-        // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份缩放配置。
+        // 兜底内核（VLC）有自己的一套画面比例计算，同步应用同一份配置。
         //
         // 关键：VLC 的「自动去黑边」必须走 ScaleType，**绝不能改 SurfaceView 尺寸**。
         // 尺寸一变，libvlc 就认为窗口变了，要重建整条 vout 管线（2–5 秒），而黑边检测
         // 恰好发生在起播 3.5 秒后 —— 这就是「切到软解后播 5 秒左右突然卡住」的成因。
-        // 另外 VLC 只能「整幅裁切」，没有部分放大，所以只在「标准/彻底」档才动手；
-        // 默认的「温和」档直接不处理，宁可留黑边也不裁掉画面。
         fallbackPlayer?.let { fb ->
-            val vlcAutoFill = autoActive && !autoCropStretch &&
-                (playSettings.autoCropStrength == 1 || playSettings.autoCropStrength == 2)
+            val vlcAutoFill = autoActive && !autoCropStretch
             fb.setAutoFill(vlcAutoFill)
             val vlcMode = when {
-                vlcAutoFill -> "fit"                       // 由 SURFACE_FILL 负责裁切
-                autoActive && autoCropStretch -> "stretch" // 横向拉满，不裁画面
+                vlcAutoFill -> "fit"                        // 由 SURFACE_FILL 负责裁切
+                autoActive && autoCropStretch -> "stretch"  // 横向拉满，不裁画面
                 else -> playSettings.zoomMode
             }
-            fb.applyLayout(
-                vlcMode,
-                if (autoActive && !autoCropStretch) autoPct else playSettings.zoomScalePct
-            )
+            fb.applyLayout(vlcMode, if (autoActive) 100 else playSettings.zoomScalePct)
         }
         val pv = playerViewRef ?: return
         pv.resizeMode = when (mode) {
@@ -1201,19 +1200,22 @@ class MainActivity : AppCompatActivity() {
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         pv.post {
-            val hostW = if (videoHost.width > 0) videoHost.width
-            else resources.displayMetrics.widthPixels
-            val hostH = if (videoHost.height > 0) videoHost.height
-            else resources.displayMetrics.heightPixels
             val lp = pv.layoutParams as? FrameLayout.LayoutParams
                 ?: FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
-            if (mode == "scale" && hostW > 0 && hostH > 0) {
-                val scale = pct / 100f
-                lp.width = (hostW * scale).toInt()
-                lp.height = (hostH * scale).toInt()
+            // 只有用户自己选的「自定义缩放」还靠撑大视图实现：Media3 没有按百分比的放大，
+            // 而这条路径是用户明确选的，出了问题也知道是自己调的那一档。
+            // 自动去黑边一律走 RESIZE_MODE_ZOOM，不再动视图尺寸。
+            if (mode == "scale") {
+                val hostW = if (videoHost.width > 0) videoHost.width
+                else resources.displayMetrics.widthPixels
+                val hostH = if (videoHost.height > 0) videoHost.height
+                else resources.displayMetrics.heightPixels
+                val scale = playSettings.zoomScalePct.coerceIn(50, 200) / 100f
+                lp.width = (hostW * scale).toInt().coerceAtLeast(1)
+                lp.height = (hostH * scale).toInt().coerceAtLeast(1)
             } else {
                 lp.width = FrameLayout.LayoutParams.MATCH_PARENT
                 lp.height = FrameLayout.LayoutParams.MATCH_PARENT
@@ -1247,6 +1249,32 @@ class MainActivity : AppCompatActivity() {
      * 按比例判断黑边并应用放大。
      * 只在「适应屏幕」+ 开关打开 + 主内核（Exo）时接管；软解内核走像素采样。
      */
+    /**
+     * 该不该自动去黑边。只看几何比例，不看像素。
+     *
+     * 1.59 的取舍：**只处理「源本身就是窄画面」这一种情况**，也就是 4:3 / 3:2 老频道。
+     * 16:9 的源在超宽屏手机（19.5:9、20:9）上本来就会左右留黑，那是屏幕形状决定的，
+     * 裁掉只会丢画面 —— 1.58 之前「所有频道都被放大」就是这里少了一道闸。
+     *
+     * @param needed aspectNeededPct 算出来的「铺满需要放大到多少」
+     */
+    private fun shouldAutoCrop(hostW: Int, hostH: Int, needed: Int): Boolean {
+        if (needed <= 104) return false
+        val hostAspect = hostW.toFloat() / hostH
+        val videoAspect = lastVideoW.toFloat() / lastVideoH
+        return when (playSettings.autoCropStrength) {
+            // 温和（默认）：只在接近 16:9 的大屏上修 4:3 一类老频道。
+            // 超宽屏手机上连 4:3 也不动 —— 那里铺满要裁掉 40% 画面，得不偿失。
+            0 -> hostAspect <= 1.95f && videoAspect <= 1.55f
+            // 标准：4:3 / 3:2 / 16:10 这类都算；超宽屏上要求黑边确实明显（≥10%）
+            1 -> videoAspect <= 1.62f && videoAspect <= hostAspect * 0.90f
+            // 彻底：只要左右（或上下）有黑边就铺满，画面会少一圈
+            2 -> true
+            // 拉伸：不裁画面，横向拉满
+            else -> true
+        }
+    }
+
     private fun applyAspectCrop() {
         if (!playSettings.autoCrop) return
         if (playSettings.zoomMode != "fit") return
@@ -1260,22 +1288,20 @@ class MainActivity : AppCompatActivity() {
 
         val needed = aspectNeededPct(hostW, hostH)
         val videoAspect = if (lastVideoH > 0) lastVideoW.toFloat() / lastVideoH else 0f
-        if (needed <= 102) {
-            // 比例一致：撤掉之前可能存在的放大，再让像素采样去找「烤进画面」的黑边
+        if (needed <= 102 || !shouldAutoCrop(hostW, hostH, needed)) {
+            // 不用处理（比例本来就对，或者只是屏幕形状不合）：撤掉之前可能存在的放大
             if (autoCropPct != 100) {
                 autoCropPct = 100
                 applyVideoLayout()
             }
             return
         }
-        val pct = cropStrengthPct(needed.coerceAtMost(175))
         autoCropDone = true
-        if (pct == autoCropPct) return
-        // 已经放大过、这次只差 3% 以内：不动，避免 HLS 切码率时来回缩放闪一下
-        if (autoCropPct > 102 && kotlin.math.abs(pct - autoCropPct) < 3) return
-        autoCropPct = pct
+        // 已经铺满了就别反复提示、也别反复重设（HLS 切码率时尺寸会抖）
+        if (autoCropPct > 102) return
+        autoCropPct = needed.coerceAtMost(175)
         applyVideoLayout()
-        toast("画面比例 ${fmtAspect(videoAspect)}，已放大到 $pct%")
+        toast("画面比例 ${fmtAspect(videoAspect)}，已裁切铺满")
     }
 
     private fun fmtAspect(a: Float): String =
@@ -1362,21 +1388,6 @@ class MainActivity : AppCompatActivity() {
         uiHandler.postDelayed(autoCropRunnable, AUTO_CROP_RETRY_MS)
     }
 
-    /**
-     * 按用户选的强度折算实际放大倍数。
-     * 几何上「铺满」和「看全」不可兼得：要消掉 4:3 频道的左右黑边，要么裁掉上下 12.5%，
-     * 要么横向拉宽 33%。所以这里默认只消除一半黑边——画面只裁 4% 左右，黑边已明显变窄。
-     */
-    private fun cropStrengthPct(needed: Int): Int {
-        if (needed <= 102) return 100
-        val ratio = when (playSettings.autoCropStrength) {
-            2 -> 1f      // 彻底：完全铺满
-            1 -> 0.75f   // 标准：消除四分之三
-            else -> 0.5f // 温和：消除一半
-        }
-        return (100 + (needed - 100) * ratio).toInt().coerceIn(100, 175)
-    }
-
     private fun onBlackBarSample(bmp: android.graphics.Bitmap?) {
         if (isFinishing || isDestroyed) return
         val insets = bmp?.let { BlackBarDetector.analyze(it) }
@@ -1396,14 +1407,6 @@ class MainActivity : AppCompatActivity() {
             }
             return
         }
-        // 软解内核只能「整幅裁切」，做不到只削掉一半黑边。
-        // 默认的「温和」档在 VLC 上直接跳过 —— 宁可留黑边，也不要为了几 pixel
-        // 把画面裁掉一圈（更不该为它去重建 VLC 管线）。
-        if (fallbackPlayer != null && playSettings.autoCropStrength == 0) {
-            autoCropDone = true
-            toast("软解频道只能整幅裁切，要去黑边请把强度改成「标准」")
-            return
-        }
         // 拉伸档：一点画面都不裁，直接把容器改回整屏让视频拉伸填满
         if (playSettings.autoCropStrength == 3) {
             autoCropDone = true
@@ -1414,12 +1417,11 @@ class MainActivity : AppCompatActivity() {
             toast("检测到黑边，已拉伸铺满（画面会略变宽）")
             return
         }
-        val pct = cropStrengthPct(needed)
         // 连续两次算出同一个值才应用：切源瞬间和暗场可能摸到一帧假黑边
-        if (pct == autoCropCandidate) {
+        if (needed == autoCropCandidate) {
             autoCropStableHits++
         } else {
-            autoCropCandidate = pct
+            autoCropCandidate = needed
             autoCropStableHits = 1
         }
         if (autoCropStableHits < 2) {
@@ -1427,15 +1429,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         autoCropDone = true
-        if (pct == autoCropPct && !autoCropStretch) return
-        autoCropPct = pct
+        if (autoCropPct > 102 && !autoCropStretch) return
+        // 放大倍数只当「已处理」的标记：实际是 RESIZE_MODE_ZOOM 整幅铺满
+        autoCropPct = needed.coerceAtMost(175)
         autoCropStretch = false
         applyVideoLayout()
-        // 软解内核下实际是「整幅裁切」，跟百分比不是一回事，别报一个假的百分比
-        toast(
-            if (fallbackPlayer != null) "检测到黑边，已裁切铺满"
-            else "检测到黑边，画面已放大到 $pct%"
-        )
+        toast("检测到黑边，已裁切铺满")
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
