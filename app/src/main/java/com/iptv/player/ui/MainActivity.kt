@@ -1119,11 +1119,11 @@ class MainActivity : AppCompatActivity() {
                 setStatus("$currentLineLabel · 软解卡顿，换线路重试…", R.color.yellow)
             }
         }
-        // 所有线路都卡死：停止来回换线，冷却 2 分钟后再允许
+        // 换线额度用完（这个频道的线路都不稳）：停止一切自动换线，留在当前线路继续重连
         pm.onAllSourcesStuck = {
             runOnUiThread {
-                setStatus("所有线路都卡住了，已暂停自动换线", R.color.red)
-                toast("所有线路都卡住了，2 分钟后再自动尝试其他线路")
+                setStatus("$currentLineLabel · 线路都不稳定，已停止自动换线", R.color.red)
+                toast("这个频道的线路都不太稳，已停止自动换线；可手动换源，或稍后再试")
             }
         }
         pm.onError = { msg, code ->

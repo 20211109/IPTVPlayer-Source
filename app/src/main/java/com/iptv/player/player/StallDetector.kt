@@ -27,8 +27,13 @@ class StallDetector(
     private val minStallMs: Long = 1_500L,
     /** 起播后多久内不统计卡顿（首屏缓冲不算） */
     private val graceMs: Long = 8_000L,
-    /** 持续缓冲超过该时长直接判定为硬卡死，一次即触发换线 */
-    private val hardStallMs: Long = 8_000L,
+    /**
+     * 持续缓冲超过该时长直接判定为硬卡死，一次即触发换线。
+     *
+     * 从 8 秒放宽到 10 秒：HLS 分片普遍 6 秒，弱源拉一个分片要 8–12 秒是常态，
+     * 卡在 8 秒等于把「正常慢分片」当成「线路废了」，换线反而让观众多黑屏一次。
+     */
+    private val hardStallMs: Long = 10_000L,
     /** 用户是否主动暂停：暂停时不应把「停在缓冲态」算成卡顿，更不能因此换线 */
     private val isPaused: () -> Boolean = { false }
 ) : AnalyticsListener {

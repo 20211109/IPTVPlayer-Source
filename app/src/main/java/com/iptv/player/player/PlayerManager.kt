@@ -89,10 +89,19 @@ class PlayerManager(
         private const val FREEZE_SWITCH_WINDOW_MS = 300_000L
         /** 刚换过线路后的观察期：新线路起播/建缓冲期间不因卡死再换，避免连续跳线 */
         private const val FREEZE_SWITCH_GRACE_MS = 30_000L
-        /** 连续播放这么久算「这条线路撑住了」，重置卡死换线计数 */
-        private const val STABLE_PLAY_RESET_MS = 60_000L
+        /**
+         * 稳定播放这么久，归还一次换线额度（上限 = 该频道线路数）。
+         *
+         * 旧实现是「稳定 60 秒就把换线计数清零」，后果很严重：只要每条线路都能撑过一分钟，
+         * 计数就永远回零，「所有线路都试过」这个条件永远达不成 —— 于是一个烂频道可以
+         * 换一晚上线，观众看到的画面永远在断和重来。改成按额度归还之后：
+         * 频繁跳线的频道额度必然耗尽并停下，而「看三小时偶发卡两次」的正常频道不受影响。
+         */
+        private const val STABLE_REFUND_MS = 180_000L
         /** 所有线路都卡死后，暂停自动换线的时长，避免两条线路无限来回切 */
         private const val FREEZE_SWITCH_COOLDOWN_MS = 120_000L
+        /** 「已停止自动换线」提示的最小间隔：三条换线路径共用，防止反复弹窗 */
+        private const val SWITCH_EXHAUSTED_NOTIFY_INTERVAL_MS = 60_000L
         /**
          * 起播看门狗：每次切换线路后这么久还没出画面，就判定这条线路无响应，自动换下一条。
          * 旧实现只在界面 openChannel 时布防一次，播放器内部换线后没人重新布防，
@@ -160,6 +169,22 @@ class PlayerManager(
     private var stallSwitchCooldownUntilMs = 0L
     /** 上次因卡顿换线的时间，用于防抖：换线后立刻又不稳时不要连续跳 */
     private var lastStallSwitchMs = 0L
+
+    /**
+     * 这个频道剩余的自动换线额度 —— 观众视角的「忍耐预算」。
+     *
+     * 任意一条自动换线路径（卡顿 / 卡死 / 软解失败）都必须先扣一次，扣完就彻底停下，
+     * 保持当前线路继续原地救，只提示一次。这样「一晚上不停跳台」在机制上就不可能发生。
+     *
+     * 为什么要设额度而不是继续调阈值：换线本身不修复任何东西，它只是赌下一条更好；
+     * 赌注就是观众要付出「黑屏两秒 + 时间线回到更早」。既然是赌，就必须限定下注次数。
+     *
+     * 起播阶段（[hasEverPlayed] = false）的换线不扣额度：那时还没看到画面，
+     * 换线只是多等几秒，性质完全不同，由 [startupRounds] 单独限流。
+     */
+    private var switchBudget = 0
+    /** 上次提示「已停止自动换线」的时间：三条路径共用，避免同一件事弹三次 */
+    private var switchExhaustedNotifiedAtMs = 0L
 
     /** 起播尝试轮次：所有线路按顺序试完一遍算一轮，用于限制「全线路重试」次数 */
     private var startupRounds = 0
@@ -691,6 +716,52 @@ class PlayerManager(
     fun hasPlayed(): Boolean = hasEverPlayed
 
     /**
+     * 重置换线额度：换台、用户手动指定线路时调用（= 重新给观众一份忍耐预算）。
+     * 必须在 [currentChannel] 赋值之后调用，额度按该频道的线路数计算。
+     */
+    private fun resetSwitchBudget() {
+        switchBudget = (currentChannel?.sources?.size ?: 1).coerceAtLeast(1)
+        switchExhaustedNotifiedAtMs = 0L
+    }
+
+    /**
+     * 扣一次自动换线额度。
+     *
+     * @return true = 还有额度，可以换线；false = 额度已用完，调用方必须停下、保持当前线路。
+     *
+     * 三条自动换线路径共用这一个闸门，所以「停止自动换线」是一个统一状态，
+     * 不存在「卡顿那条停了、卡死那条还在偷偷换」的情况。
+     */
+    private fun consumeSwitchBudget(): Boolean {
+        if (switchBudget > 0) {
+            switchBudget--
+            return true
+        }
+        // 额度耗尽：只提示一次（带间隔），反复弹「已停止换线」本身就是新的打扰
+        val now = System.currentTimeMillis()
+        if (now - switchExhaustedNotifiedAtMs >= SWITCH_EXHAUSTED_NOTIFY_INTERVAL_MS) {
+            switchExhaustedNotifiedAtMs = now
+            onAllSourcesStuck?.invoke()
+        }
+        return false
+    }
+
+    /**
+     * 挑下一条要换过去的线路（不含当前线路）。
+     *
+     * 优先选「还没试过的」；都试过之后按序号轮转，而不是永远回到序号最小的那条 ——
+     * 否则 4 条线路的频道播放中换过一轮后，会永久在 1、2 号之间来回，
+     * 3、4 号再也用不上。这也是「跳来跳去总是那几个」的来源。
+     */
+    private fun pickNextSourceIndex(channel: Channel): Int? {
+        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
+        if (candidates.isEmpty()) return null
+        return candidates.firstOrNull { it !in triedIndices }
+            ?: candidates.firstOrNull { it > currentSourceIndex }
+            ?: candidates.first()
+    }
+
+    /**
      * 线路顺序 = 播放列表里的原始顺序（不再做测速排序）。
      * 起播走第一条，只有起播一直失败时才按顺序切到下一未尝试线路。
      */
@@ -701,6 +772,8 @@ class PlayerManager(
     /** 起播一个频道：从第一条线路、当前直播点开始；没有任何源时给出提示 */
     fun playChannel(channel: Channel) {
         currentChannel = channel
+        // 换台 = 重新给一份换线预算（按新频道的线路数），否则上一个频道跳废的额度会延续过来
+        resetSwitchBudget()
         triedIndices.clear()
         // 换频道 = 软解阶段的重试记录也作废，新频道每条线路都该有一次软解机会
         fallbackTriedIndices.clear()
@@ -777,6 +850,8 @@ class PlayerManager(
         if (index !in channel.sources.indices) return false
         if (index == currentSourceIndex) return false
 
+        // 用户亲自指定线路：顺带把换线额度也补满，别让他下一次被迫停在「已停止换线」状态
+        resetSwitchBudget()
         hasEverPlayed = false
         givenUp = false
         startupRounds = 0
@@ -801,11 +876,10 @@ class PlayerManager(
     fun switchToNextSourceManually(): Boolean {
         val channel = currentChannel ?: return false
         if (channel.sources.size <= 1) return false
-        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
-        if (candidates.isEmpty()) return false
-        val next = candidates.firstOrNull { it !in triedIndices } ?: candidates.first()
+        val next = pickNextSourceIndex(channel) ?: return false
 
-        // 手动换线 = 用户主动重置：清空锁台、失败熔断与卡死统计
+        // 手动换线 = 用户主动重置：清空锁台、失败熔断与卡死统计，并把换线额度补满
+        resetSwitchBudget()
         hasEverPlayed = false
         givenUp = false
         startupRounds = 0
@@ -844,7 +918,8 @@ class PlayerManager(
         if (stallSwitchChain >= channel.sources.size) {
             stallSwitchChain = 0
             stallSwitchCooldownUntilMs = now + FREEZE_SWITCH_COOLDOWN_MS
-            onAllSourcesStuck?.invoke()
+            // 这里不再提示：统一由 consumeSwitchBudget() 在额度真正耗尽时提示一次。
+            // 否则会出现「这条路径说停了、那条路径还在跳」，提示与实际行为对不上。
             return false
         }
         // 防抖：刚换过线路就立刻又不稳时，先让新线路自己恢复，不要连续跳
@@ -852,9 +927,9 @@ class PlayerManager(
             return false
         }
 
-        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
-        if (candidates.isEmpty()) return false
-        val next = candidates.firstOrNull { it !in triedIndices } ?: candidates.first()
+        val next = pickNextSourceIndex(channel) ?: return false
+        // 观众预算：额度用完就不再换线，留在原线路继续重连 —— 重连不黑屏，比换线温和得多
+        if (!consumeSwitchBudget()) return false
 
         lastStallSwitchMs = now
         stallSwitchChain++
@@ -889,6 +964,8 @@ class PlayerManager(
         val next = channel.sources.indices.firstOrNull {
             it != currentSourceIndex && it !in fallbackTriedIndices
         } ?: return false
+        // 软解失败换线同样要花观众的忍耐额度：三条自动换线路径共用一份预算
+        if (!consumeSwitchBudget()) return false
 
         // 「锁台」结论只对 Exo 成立：软解阶段失败说明这条线路在这个内核上不可用，
         // 新线路必须拿到完整的起播机会（含卡死换线、起播看门狗、无声检测）。
@@ -910,7 +987,8 @@ class PlayerManager(
     }
 
     /** 真正执行切源：记录尝试、设置媒体源、从直播点起播 */
-    private fun switchTo(index: Int, positionMs: Long) {        val channel = currentChannel ?: return
+    private fun switchTo(index: Int, positionMs: Long) {
+        val channel = currentChannel ?: return
         val source = channel.sources.getOrNull(index) ?: return
         triedIndices.add(index)
         currentSourceIndex = index
@@ -1092,10 +1170,14 @@ class PlayerManager(
             if (player.playbackState == Player.STATE_READY) {
                 freezeRecoveries = 0
                 if (stableSinceMs == 0L) stableSinceMs = now
-                // 稳定播放够久，说明这条线路是好的，清空「连续换线」计数
-                if (now - stableSinceMs >= STABLE_PLAY_RESET_MS) {
+                // 稳定播放够久：这条线路算撑住了，归还一次换线额度并清空连续换线计数。
+                // 必须把 stableSinceMs 推到 now，否则每 3 秒巡检都会再归还一次，额度等于无限。
+                if (now - stableSinceMs >= STABLE_REFUND_MS) {
+                    stableSinceMs = now
                     freezeSwitchChain = 0
                     stallSwitchChain = 0
+                    val cap = currentChannel?.sources?.size ?: 1
+                    if (switchBudget < cap) switchBudget++
                 }
             }
         }
@@ -1199,13 +1281,13 @@ class PlayerManager(
             freezeRecoveries = 0
             freezeTimestamps.clear()
             freezeSwitchCooldownUntilMs = now + FREEZE_SWITCH_COOLDOWN_MS
-            onAllSourcesStuck?.invoke()
+            // 提示统一交给 consumeSwitchBudget()，见卡顿换线处的说明
             return false
         }
 
-        val candidates = channel.sources.indices.filter { it != currentSourceIndex }
-        if (candidates.isEmpty()) return false
-        val next = candidates.firstOrNull { it !in triedIndices } ?: candidates.first()
+        val next = pickNextSourceIndex(channel) ?: return false
+        // 与卡顿换线共用同一份预算：所有自动换线路径都是同一种「下注」
+        if (!consumeSwitchBudget()) return false
         // 换线路前清空卡死统计，避免新线路立刻被判死
         freezeRecoveries = 0
         freezeTimestamps.clear()
