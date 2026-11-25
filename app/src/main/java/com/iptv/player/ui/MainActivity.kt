@@ -169,6 +169,12 @@ class MainActivity : AppCompatActivity() {
     private var lastVideoW = 0
     private var lastVideoH = 0
 
+    /** 状态栏里「播放中（xx 软解）」这半句，供后续追加实测信息用 */
+    private var vlcStatusBase = ""
+    /** 铺满生效性自检：最多补采两次（暗场可能采不出黑边） */
+    private var stretchProbeCount = 0
+    private val stretchProbeRunnable = Runnable { probeStretchFill() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -1218,23 +1224,15 @@ class MainActivity : AppCompatActivity() {
             val vlcCrop = autoActive && cropMode == CropMode.CROP
             val vlcStretch = autoActive && cropMode == CropMode.STRETCH
             fb.setAutoFill(vlcCrop)
+            // 拉伸铺满：把「视频比例」交给兜底内核，让它用这个比例去建渲染缓冲，
+            // 再由 SurfaceView 把缓冲拉到整屏 —— 完全绕开 setVideoScale
+            // （1.61 实测那套在这台机器上一点效果都没有，VLC 视频输出压根不认缩放指令）。
+            val videoAspect = if (lastVideoH > 0 && lastVideoW > 0) lastVideoW.toFloat() / lastVideoH else 0f
+            fb.setStretchAspect(if (vlcStretch) videoAspect else 0f)
             val vlcMode = when {
-                vlcCrop -> "fit"                            // 由 SURFACE_FILL 负责裁切
-                vlcStretch -> "stretch"
+                vlcCrop -> "fit"          // 由 SURFACE_FILL 负责裁切
+                vlcStretch -> "fit"       // 由缓冲比例负责铺满（best-fit 进缓冲即满）
                 else -> playSettings.zoomMode
-            }
-            // 拉伸铺满给 VLC 两重保障：SURFACE_FIT_SCREEN 在部分机型/部分 vout 上会被
-            // setVideoScale 悄悄拒掉（异常还被吞了），只靠它就时好时坏。再把「目标显示比例」
-            // 定成窗口比例（等价于告诉 VLC 这是变形宽银幕片源），best-fit 也必然铺满，
-            // 两条路结果一致，谁也不依赖谁。
-            if (vlcStretch) {
-                val hw = if (videoHost.width > 0) videoHost.width
-                else resources.displayMetrics.widthPixels
-                val hh = if (videoHost.height > 0) videoHost.height
-                else resources.displayMetrics.heightPixels
-                fb.setFillAspect(hw, hh)
-            } else {
-                fb.setFillAspect(0, 0)
             }
             fb.applyLayout(vlcMode, if (autoActive) 100 else playSettings.zoomScalePct)
         }
@@ -1430,6 +1428,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 铺满生效性自检：软解内核起来 5 秒后量一帧，把「左右还留了多宽」写进状态栏。
+     *
+     * 为什么必须量：1.61 把「拉伸」交给 VLC 的 setVideoScale，真机上一动不动 ——
+     * 光看代码分不清是「指令没下发」还是「内核不认」。量一帧就能分清：
+     * 留边 ≈ 0% = 铺满真的生效了；留边 15% 以上 = 连缓冲拉伸都被系统忽略，得换渲染方式。
+     */
+    private fun probeStretchFill() {
+        val fb = fallbackPlayer ?: return
+        if (!playSettings.autoCrop || playSettings.zoomMode != "fit") return
+        val geo = fb.stretchBufferLabel() ?: return
+        val surface = fb.videoSurface() ?: return
+        BlackBarDetector.capture(surface, false) { bmp ->
+            uiHandler.post {
+                val insets = bmp?.let { BlackBarDetector.analyze(it) }
+                if (insets == null) {
+                    // 暗场 / 刚切镜：补采两次再下结论
+                    if (stretchProbeCount < 2) {
+                        stretchProbeCount++
+                        uiHandler.postDelayed(stretchProbeRunnable, 3_000L)
+                    }
+                    return@post
+                }
+                val bar = (maxOf(insets.horizontal, insets.vertical) * 100f).toInt()
+                if (vlcStatusBase.isNotEmpty() && fallbackPlayer === fb) {
+                    setStatus("$vlcStatusBase · 拉伸 $geo · 留边 ${bar.coerceAtLeast(0)}%", R.color.green)
+                }
+            }
+        }
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸。
@@ -1489,12 +1518,22 @@ class MainActivity : AppCompatActivity() {
                 fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
                 fallbackTimeoutRunnable = null
                 pbLoading.visibility = View.GONE
-                // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
-                setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 // 出画后再按轨道比例定一次画幅：软解频道以前完全不走比例判断，
                 // 手机上就一直留着左右黑边（这里补上，且与主内核同一套规则）。
                 // force：VLC 重建管线（转屏、卡死恢复）后是新实例，画幅要重灌一遍。
                 applyAspectCrop(silent = true, force = true)
+                // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
+                // 状态里带上渲染缓冲尺寸：一眼就能看出「铺满」到底有没有真正下发
+                // （没有这段后缀 = 没拿到视频比例，也就谈不上铺满）。
+                val geo = fallbackPlayer?.stretchBufferLabel()
+                vlcStatusBase = "$currentLineLabel · 播放中（${audioDesc}软解）"
+                setStatus(vlcStatusBase + if (geo != null) " · 拉伸 $geo" else "", R.color.green)
+                // 过几秒量一帧：铺满到底有没有生效，只有看像素才知道
+                if (geo != null) {
+                    stretchProbeCount = 0
+                    uiHandler.removeCallbacks(stretchProbeRunnable)
+                    uiHandler.postDelayed(stretchProbeRunnable, 5_000L)
+                }
                 // 软解路径出画更慢，多等一会儿再采样黑边
                 scheduleAutoCrop(3_500L)
             },

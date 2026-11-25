@@ -73,21 +73,39 @@ class VlcFallbackPlayer(
     private var autoFill = false
 
     /**
-     * 「拉伸铺满」时的目标显示比例（宽 × 高，0 = 不干预）。
+     * 「拉伸铺满」用视频显示比例驱动的渲染缓冲（0 = 不启用）。
      *
-     * 为什么还要这条路：SURFACE_FIT_SCREEN（非等比铺满）由 setVideoScale 下发，
-     * 在部分机型上会被 vout 悄悄忽略，结果是「Exo 铺满、切到软解就变回两边黑边」。
-     * 而把显示比例直接定成窗口比例（相当于告诉 VLC「这是变形宽银幕片源」），
-     * 默认的 best-fit 就必然铺满整屏 —— 值在开播前定好，不需要改窗口尺寸，
-     * 因此也不会触发管线重建（不会再有「播 5 秒卡一下」）。
+     * 为什么不用 setVideoScale：1.61 实测在真机上**完全无效** —— 无论是
+     * SURFACE_FILL 还是 SURFACE_FIT_SCREEN，下发后画面依旧是 best-fit 居中留边
+     * （异常还被库内部吞掉，连日志都没有）。也就是这台机器的 VLC 视频输出压根不认
+     * 缩放指令，所以「让 VLC 自己裁/拉」这条路走不通。
+     *
+     * 改成我们不求它：SurfaceView 的渲染缓冲尺寸可以独立于视图尺寸（holder.setFixedSize），
+     * 而合成器会把这块缓冲**拉伸铺满整个视图层**。于是：
+     *   缓冲 = 视频自身比例（如 4:3 → 1440×1080），VLC 在里面 best-fit 正好铺满、无黑边；
+     *   视图 = 整屏（2340×1080）→ 合成器把这 1440 宽横向拉到 2340 → 就是「拉伸铺满」。
+     * 全过程只用到窗口尺寸（libvlc 一直按它算缩放），不依赖任何缩放/裁切 API。
      */
-    private var fillAspectW = 0
-    private var fillAspectH = 0
+    private var bufferAspect = 0f
+    private var bufferW = 0
+    private var bufferH = 0
 
-    fun setFillAspect(w: Int, h: Int) {
-        fillAspectW = if (w > 0 && h > 0) w else 0
-        fillAspectH = if (w > 0 && h > 0) h else 0
+    /**
+     * 告诉 VLC 内核「要按这个比例铺满」。传 0 表示不启用（按原比例居中）。
+     * 已经开播时比例变了必须重建管线（缓冲尺寸变了），走 scheduleRestart。
+     */
+    fun setStretchAspect(aspect: Float) {
+        val a = if (aspect > 0.2f && aspect < 6f) aspect else 0f
+        if (abs(a - bufferAspect) < 0.005f) return
+        bufferAspect = a
+        bufferW = 0
+        bufferH = 0
+        if (!released && player != null) scheduleRestart()
     }
+
+    /** 给状态栏用：当前渲染缓冲尺寸（null = 没在拉伸） */
+    fun stretchBufferLabel(): String? =
+        if (bufferW > 0 && bufferH > 0) "$bufferW×$bufferH" else null
 
     private var currentUrl: String? = null
 
@@ -116,10 +134,11 @@ class VlcFallbackPlayer(
     private val restartRunnable = Runnable {
         restartPending = false
         if (released) return@Runnable
-        val sv = surfaceView ?: return@Runnable
-        if (sv.width <= 0 || sv.height <= 0) return@Runnable
+        if (surfaceView == null) return@Runnable
+        val (w, h) = targetSurfaceSize()
+        if (w <= 0 || h <= 0) return@Runnable
         // 尺寸其实没变（例如只是键盘弹出引起的微小抖动）就不折腾
-        if (abs(sv.width - voutWidth) < 8 && abs(sv.height - voutHeight) < 8) return@Runnable
+        if (abs(w - voutWidth) < 8 && abs(h - voutHeight) < 8) return@Runnable
         restartNow()
     }
 
@@ -201,32 +220,59 @@ class VlcFallbackPlayer(
     fun onHostResized() {
         if (released) return
         if (zoomMode == "scale") layoutSurface()
-        // 只有 surface 实际尺寸（像素）跟已交给 VLC 的窗口尺寸不同才需要重建。
+        if (bufferAspect > 0f) {
+            // 拉伸缓冲的高度是跟着宿主走的，宿主变了必须重算
+            val oldW = bufferW
+            val oldH = bufferH
+            computeBuffer()
+            if (oldW != bufferW || oldH != bufferH) applyBufferSize()
+        }
+        // 只有实际像素尺寸（像素）跟已交给 VLC 的窗口尺寸不同才需要重建。
         // 无条件重建是上一版的坑：宿主每重排一次就重启一次管线，画面反复回到窗口开头。
         maybeRestartIfSizeChanged()
     }
 
+    /** 当前该交给 VLC 的窗口尺寸：拉伸模式是渲染缓冲，否则是视图尺寸 */
+    private fun targetSurfaceSize(): Pair<Int, Int> {
+        if (bufferW > 0 && bufferH > 0) return bufferW to bufferH
+        val sv = surfaceView ?: return 0 to 0
+        return sv.width to sv.height
+    }
+
     private fun maybeRestartIfSizeChanged() {
         if (released || player == null) return
-        val sv = surfaceView ?: return
-        if (sv.width <= 0 || sv.height <= 0) return
-        if (abs(sv.width - voutWidth) < 8 && abs(sv.height - voutHeight) < 8) return
+        val (w, h) = targetSurfaceSize()
+        if (w <= 0 || h <= 0) return
+        if (abs(w - voutWidth) < 8 && abs(h - voutHeight) < 8) return
         scheduleRestart()
     }
 
-    private fun pctSafe(v: Int): Int = v.coerceIn(50, 200)
-
-    /** 约分用：aspect-ratio 里 2340:1080 这种大数 VLC 也认，但小值更稳 */
-    private fun gcdOf(a: Int, b: Int): Int {
-        var x = abs(a)
-        var y = abs(b)
-        while (y != 0) {
-            val t = x % y
-            x = y
-            y = t
-        }
-        return if (x == 0) 1 else x
+    /**
+     * 按视频比例算渲染缓冲：高度跟宿主一致，宽度按视频比例缩。
+     * 视图仍然是满屏，系统会把这块缓冲拉伸铺满整层。
+     */
+    private fun computeBuffer() {
+        bufferW = 0
+        bufferH = 0
+        if (bufferAspect <= 0f) return
+        val hh = fallbackHeight()
+        if (hh <= 0) return
+        val w = (hh * bufferAspect).toInt()
+        if (w < 32) return
+        bufferW = w
+        bufferH = hh
     }
+
+    /** 把缓冲尺寸交给 SurfaceView：视图尺寸不变，缓冲独立 —— 拉伸就发生在这里 */
+    private fun applyBufferSize() {
+        val sv = surfaceView ?: return
+        runCatching {
+            if (bufferW > 0 && bufferH > 0) sv.holder.setFixedSize(bufferW, bufferH)
+            else sv.holder.setSizeFromLayout()
+        }
+    }
+
+    private fun pctSafe(v: Int): Int = v.coerceIn(50, 200)
 
     /** 起一条全新的会话：先挂 surface，等它拿到真实尺寸后再初始化 VLC */
     private fun beginSession(url: String) {
@@ -241,6 +287,10 @@ class VlcFallbackPlayer(
         }
         host.addView(sv)
         surfaceView = sv
+        // 拉伸模式：先把渲染缓冲定成视频比例（视图仍是满屏，由系统把缓冲拉开）。
+        // 必须在挂上去之前设，否则第一帧会按满屏尺寸建缓冲，之后又得重建一次。
+        computeBuffer()
+        applyBufferSize()
         sv.addOnLayoutChangeListener { v, l, t, r, b, _, _, _, _ ->
             val curve = v as SurfaceView
             if (curve !== surfaceView) return@addOnLayoutChangeListener
@@ -254,8 +304,9 @@ class VlcFallbackPlayer(
         if (released || g != generation) return
         val sv = surfaceView ?: return
         try {
-            val w = if (sv.width > 0) sv.width else fallbackWidth()
-            val h = if (sv.height > 0) sv.height else fallbackHeight()
+            val (sw, sh) = targetSurfaceSize()
+            val w = if (sw > 0) sw else fallbackWidth()
+            val h = if (sh > 0) sh else fallbackHeight()
             voutWidth = w
             voutHeight = h
 
@@ -276,6 +327,8 @@ class VlcFallbackPlayer(
             vout.setVideoView(sv)
             vout.setWindowSize(w, h)
             vout.attachViews()
+            // attachViews 有可能把 holder 恢复成「跟随布局」，这里再定一次缓冲尺寸
+            applyBufferSize()
 
             mp.setEventListener(object : MediaPlayer.EventListener {
                 // 注意：3.6.x 这里声明的是 MediaPlayer.Event；3.7.x 改成了 AbstractVLCEvent，
@@ -326,12 +379,6 @@ class VlcFallbackPlayer(
             // 断流时让 VLC 自己重连，别把连接直接丢掉（它会表现为永久定格）
             media.addOption(":http-reconnect=true")
             if (forceSoftVideo) media.addOption(":avcodec-hw=none")
-            // 拉伸铺满：把显示比例定成窗口比例，best-fit 也必然铺满（见 fillAspectW 注释）。
-            // 必须在 setMedia 之前 addOption，且只影响「显示比例」，不动解码参数。
-            if (fillAspectW > 0 && fillAspectH > 0) {
-                val d = gcdOf(fillAspectW, fillAspectH)
-                media.addOption(":aspect-ratio=${fillAspectW / d}:${fillAspectH / d}")
-            }
             mp.setMedia(media)
             media.release()
             mp.play()
@@ -350,7 +397,12 @@ class VlcFallbackPlayer(
     private fun onSurfaceResized(w: Int, h: Int) {
         if (released || player == null) return
         if (w <= 0 || h <= 0) return
-        if (abs(w - voutWidth) < 8 && abs(h - voutHeight) < 8) return
+        // 拉伸模式下真正交给 VLC 的是「渲染缓冲」，它跟视图尺寸不是一回事
+        // （视图 2340×1080、缓冲可能只有 1440×1080）—— 这里必须比缓冲，
+        // 否则视图尺寸永远对不上，会陷入「一布局就重建」的死循环。
+        val (tw, th) = targetSurfaceSize()
+        if (tw <= 0 || th <= 0) return
+        if (abs(tw - voutWidth) < 8 && abs(th - voutHeight) < 8) return
         // 不在这里直接重建：surface 在旋转/键盘弹出时会连续变几次尺寸，
         // 交给 scheduleRestart 防抖 + 到点再确认一次尺寸是否真的变了。
         scheduleRestart()
@@ -380,6 +432,9 @@ class VlcFallbackPlayer(
     private fun applyScaleTypeAsync() {
         val mp = player ?: return
         val scale = when {
+            // 拉伸模式：缓冲本身就是视频比例，best-fit 就已经铺满整块缓冲了。
+            // 这里绝不能再叠 FILL/FIT_SCREEN —— 那会把刚刚对齐的画幅又裁/拉一次。
+            bufferW > 0 && bufferH > 0 -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
             // 自动去黑边优先于 fit：用 VLC 自己的裁切，不改视图尺寸
             autoFill && zoomMode == "fit" -> MediaPlayer.ScaleType.SURFACE_FILL
             zoomMode == "crop" -> MediaPlayer.ScaleType.SURFACE_FILL
