@@ -629,7 +629,11 @@ class VlcFallbackPlayer(
         }
     }
 
-    private companion object {
+    /**
+     * 对外只需要两样东西：失败原因常量与「这次失败是否与线路有关」的判断，
+     * 供界面决定「先换线路」还是「直接降级无声」。其余常量请保持不暴露给外部使用。
+     */
+    companion object {
         /**
          * 直播缓存（毫秒）默认值。
          *
