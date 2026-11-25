@@ -1688,11 +1688,9 @@ class MainActivity : AppCompatActivity() {
         overlayVisible = false
         // 焦点若停在按钮上，收起来后必须交还，否则遥控器按「确定」会落空
         (currentFocus as? Button)?.clearFocus()
-        if (playSettings.showStats) {
-            // 用户特意开了「显示播放状态」：只收按钮，状态条留着
-            btnRow.visibility = View.GONE
-            return
-        }
+        // 状态条一起收：它是「播放中／缓冲中」这类运行信息，同样不该长期压在画面上。
+        // （设置里的「显示调试信息」只决定状态条里写不写缓冲/丢帧，不影响自动隐藏；
+        //   否则开了调试就等于这条永远收不掉，用户看到的就是「只有它没隐藏」）
         statsBar.visibility = View.GONE
         topPanel.animate().cancel()
         topPanel.animate().alpha(0f).setDuration(200L).withEndAction {
