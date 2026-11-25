@@ -1002,6 +1002,8 @@ class MainActivity : AppCompatActivity() {
         val playStart = playSettings.playStartMs.coerceIn(200, minBufferMs)
         val rebuffer = playSettings.rebufferMs.coerceIn(200, minBufferMs)
         val cooldownMs = playSettings.stallCooldownS.coerceIn(2, 60) * 1000L
+        // 直播延迟：0 = 交给 Media3 自动判断（约 3 个分片），>0 = 按用户设定的秒数往后站
+        val liveDelayMs = playSettings.liveDelayS.coerceIn(0, PlaybackSettings.MAX_LIVE_DELAY) * 1000
         val pm = try {
             PlayerManager(
                 this,
@@ -1009,6 +1011,7 @@ class MainActivity : AppCompatActivity() {
                 bufferMaxMs = maxS * 1000,
                 bufferForPlaybackMs = playStart,
                 bufferForPlaybackAfterRebufferMs = rebuffer,
+                liveDelayMs = liveDelayMs,
                 switchCooldownMs = cooldownMs,
                 decoderPriority = playSettings.decoderPriority
             )
@@ -1021,6 +1024,7 @@ class MainActivity : AppCompatActivity() {
                     bufferMaxMs = 40_000,
                     bufferForPlaybackMs = 1_500,
                     bufferForPlaybackAfterRebufferMs = 1_500,
+                    liveDelayMs = 0,
                     switchCooldownMs = cooldownMs,
                     decoderPriority = playSettings.decoderPriority
                 )
@@ -1482,6 +1486,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * VLC 侧的直播缓存时长，跟随用户的「直播延迟」设置。
+     *
+     * 下限 4 秒：低于一个 HLS 分片就必然在每个分片边界停一下；
+     * 上限 15 秒：VLC 的 demux 缓存是整段 TS 驻留内存，再大对小盒子不划算。
+     * 用户选「自动」(0) 时用 8 秒——VLC 没有 Exo 那种按窗口自动计算的机制，
+     * 必须给个固定值，8 秒约等于一个半分片，是最稳的折中。
+     */
+    private fun vlcCachingMs(): Int {
+        val s = playSettings.liveDelayS
+        if (s <= 0) return 8_000
+        return (s * 1000).coerceIn(4_000, 15_000)
+    }
+
+    /**
      * 启动 VLC 兜底内核：视频优先硬解、驱动不允许时自动退回软解，音频由 FFmpeg 解码，
      * 专门解决 AC-3 / E-AC-3 / MP2 音轨「有画面没声音」的问题。
      *
@@ -1541,7 +1559,10 @@ class MainActivity : AppCompatActivity() {
                     pbLoading.visibility = View.VISIBLE
                     setStatus("$currentLineLabel · 画面重排中…", R.color.yellow)
                 }
-            }
+            },
+            // 与 Exo 侧的「直播延迟」同量级：用户把这个值调大后，两条内核都要跟着变厚，
+            // 否则同一频道换内核就换了一套缓冲表现，用户会觉得「一会儿稳一会儿卡」。
+            networkCachingMs = vlcCachingMs()
         )
         fallbackPlayer = fallback
         // 新实例的 zoomMode 是默认的 fit，必须先把「当前决策」原样灌进去，
@@ -1808,6 +1829,7 @@ class MainActivity : AppCompatActivity() {
         val vBufMax = view.findViewById<TextView>(R.id.vBufferMax)
         val vPlayStart = view.findViewById<TextView>(R.id.vPlayStart)
         val vRebuffer = view.findViewById<TextView>(R.id.vRebuffer)
+        val vLiveDelay = view.findViewById<TextView>(R.id.vLiveDelay)
         val vRetry = view.findViewById<TextView>(R.id.vMaxRetry)
         val cbStats = view.findViewById<android.widget.CheckBox>(R.id.cbShowStats)
         val cbInsecure = view.findViewById<android.widget.CheckBox>(R.id.cbInsecureTls)
@@ -1833,6 +1855,10 @@ class MainActivity : AppCompatActivity() {
         bindNumberField(vBufMax, "最大缓冲", playSettings.bufferMaxS, 10, 120, " 秒")
         bindNumberField(vPlayStart, "起播缓冲", playSettings.playStartMs, 200, 20000, " 毫秒")
         bindNumberField(vRebuffer, "卡顿后缓冲", playSettings.rebufferMs, 200, 20000, " 毫秒")
+        bindNumberField(
+            vLiveDelay, "直播延迟", playSettings.liveDelayS, 0,
+            PlaybackSettings.MAX_LIVE_DELAY, " 秒"
+        )
         bindNumberField(vZoomScale, "自定义缩放", playSettings.zoomScalePct, 50, 200, " %")
 
         cbStats.isChecked = playSettings.showStats
@@ -1864,7 +1890,7 @@ class MainActivity : AppCompatActivity() {
                 val oldEngine = listOf(
                     playSettings.stallWindowS, playSettings.stallCount, playSettings.stallCooldownS,
                     playSettings.bufferMinS, playSettings.bufferMaxS, playSettings.playStartMs,
-                    playSettings.rebufferMs, playSettings.maxRetry
+                    playSettings.rebufferMs, playSettings.liveDelayS, playSettings.maxRetry
                 )
 
                 playSettings.stallWindowS = vWindow.valueOr(PlaybackSettings.DEF_STALL_WINDOW)
@@ -1874,6 +1900,7 @@ class MainActivity : AppCompatActivity() {
                 playSettings.bufferMaxS = vBufMax.valueOr(PlaybackSettings.DEF_BUFFER_MAX)
                 playSettings.playStartMs = vPlayStart.valueOr(PlaybackSettings.DEF_PLAY_START)
                 playSettings.rebufferMs = vRebuffer.valueOr(PlaybackSettings.DEF_REBUFFER)
+                playSettings.liveDelayS = vLiveDelay.valueOr(PlaybackSettings.DEF_LIVE_DELAY)
                 playSettings.maxRetry = vRetry.valueOr(PlaybackSettings.DEF_MAX_RETRY)
                 playSettings.showStats = cbStats.isChecked
                 playSettings.autoSwitchOnStall = cbAutoSwitch.isChecked
@@ -1894,7 +1921,7 @@ class MainActivity : AppCompatActivity() {
                 val engineNow = listOf(
                     playSettings.stallWindowS, playSettings.stallCount, playSettings.stallCooldownS,
                     playSettings.bufferMinS, playSettings.bufferMaxS, playSettings.playStartMs,
-                    playSettings.rebufferMs, playSettings.maxRetry
+                    playSettings.rebufferMs, playSettings.liveDelayS, playSettings.maxRetry
                 )
                 // 证书 / 解码器 / 渲染方式都在播放器或视图创建时固定，必须重建后生效；
                 // 缓冲与卡顿参数同理 —— 以前漏了这一组，用户改完「毫无反应」。
@@ -2008,7 +2035,9 @@ class MainActivity : AppCompatActivity() {
 
         fun type(digit: Char) {
             if (buf.length >= 6) return
-            if (buf.isEmpty() && digit == '0') return
+            // 只有范围不含 0 时才禁止「0 开头」。直播延迟这类允许 0=自动 的项，
+            // 如果也拦掉 0，用户就永远输不进「自动」这个合法值。
+            if (buf.isEmpty() && digit == '0' && min > 0) return
             buf.append(digit)
             render()
         }

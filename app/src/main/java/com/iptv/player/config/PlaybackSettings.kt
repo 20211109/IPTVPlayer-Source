@@ -19,6 +19,9 @@ class PlaybackSettings(context: Context) {
         const val KEY_BUFFER_MAX = "buffer_max_s_v2"           // 最大缓冲（秒）
         const val KEY_PLAY_START = "play_start_ms_v2"          // 起播缓冲（毫秒）
         const val KEY_REBUFFER = "rebuffer_ms_v2"              // 卡顿后起播缓冲（毫秒）
+        // 直播延迟：播放点落后直播边缘多少秒。落后越多，手里常备的分片越多，
+        // 网络抖一下也不必立刻转圈——这是「稳定优先」最有效的一个旋钮。
+        const val KEY_LIVE_DELAY = "live_delay_s_v1"
         const val KEY_SHOW_STATS = "show_stats"                // 是否显示调试状态条
         const val KEY_MAX_RETRY = "max_retry"                  // 连续失败熔断阈值
         // 换 key：改为「默认开启」。老版本里该键已写入 false，换 key 才能让新默认对老用户生效。
@@ -53,6 +56,17 @@ class PlaybackSettings(context: Context) {
         const val DEF_PLAY_START = 1500
         // 卡顿后至少攒够 4 秒再恢复，否则刚恢复就再次耗尽形成连环卡顿
         const val DEF_REBUFFER = 4000
+        /**
+         * 默认 0 = 交给 Media3 自动。
+         *
+         * 自动档并不是「贴着直播边缘」：HLS 的默认目标是 3 倍分片时长
+         * （6 秒分片 → 18 秒），本身就留了两三个分片的余量。再叠加
+         * PlayerManager 里「每卡一次自动后移 3 秒」的增量，弱网会自己越站越远。
+         * 所以默认不写死数值，避免在分片时长不同的源上反而把缓冲调薄。
+         */
+        const val DEF_LIVE_DELAY = 0
+        /** 上限：再大就会超出多数免费源只保留 3～5 个分片的窗口，反而取不到 */
+        const val MAX_LIVE_DELAY = 40
         const val DEF_MAX_RETRY = 6
         const val DEF_ZOOM_MODE = "fit"
         const val DEF_ZOOM_SCALE = 100
@@ -87,6 +101,14 @@ class PlaybackSettings(context: Context) {
     var rebufferMs: Int
         get() = sp.getInt(KEY_REBUFFER, DEF_REBUFFER)
         set(v) = sp.edit().putInt(KEY_REBUFFER, v).apply()
+
+    /**
+     * 直播延迟（秒）：播放点离直播边缘的距离。
+     * 0 表示交给播放器自动（3 倍分片时长）；调大会更抗卡，但画面更晚。
+     */
+    var liveDelayS: Int
+        get() = sp.getInt(KEY_LIVE_DELAY, DEF_LIVE_DELAY).coerceIn(0, MAX_LIVE_DELAY)
+        set(v) = sp.edit().putInt(KEY_LIVE_DELAY, v.coerceIn(0, MAX_LIVE_DELAY)).apply()
 
     var showStats: Boolean
         get() = sp.getBoolean(KEY_SHOW_STATS, false)
@@ -182,6 +204,7 @@ class PlaybackSettings(context: Context) {
             .putInt(KEY_BUFFER_MAX, DEF_BUFFER_MAX)
             .putInt(KEY_PLAY_START, DEF_PLAY_START)
             .putInt(KEY_REBUFFER, DEF_REBUFFER)
+            .putInt(KEY_LIVE_DELAY, DEF_LIVE_DELAY)
             .putInt(KEY_MAX_RETRY, DEF_MAX_RETRY)
             .putBoolean(KEY_SHOW_STATS, false)
             .putBoolean(KEY_INSECURE_TLS, true)

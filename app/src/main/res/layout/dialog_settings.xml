@@ -74,6 +74,20 @@
             <TextView android:id="@+id/vRebuffer" style="@style/SettingValue" />
         </LinearLayout>
 
+        <!-- 直播延迟：往后退多少秒看直播，退得越多越抗卡 -->
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="直播延迟(秒,0=自动)" />
+            <TextView android:id="@+id/vLiveDelay" style="@style/SettingValue" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="直播延迟 = 画面比现场晚多少秒。0 是自动（约 3 个分片，通常 18 秒左右），遇到进度条追不上、看一会儿卡一下，先试 20~30；延迟大的源不要再往上加。"
+            android:textSize="11sp"
+            android:textColor="@color/text_hint" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -44,7 +44,12 @@ class VlcFallbackPlayer(
     private val onPrepared: () -> Unit,
     private val onFailed: (String) -> Unit,
     /** 尺寸变化需要重建时回调（界面可以借机显示一下「正在重连」） */
-    private val onRestarting: (() -> Unit)? = null
+    private val onRestarting: (() -> Unit)? = null,
+    /**
+     * VLC 侧直播缓存（毫秒）：与 Exo 侧的「直播延迟」保持同一个量级，
+     * 否则同一个频道换内核后缓冲厚度会变，用户会觉得「有时候稳有时候卡」。
+     */
+    private val networkCachingMs: Int = NETWORK_CACHING_MS
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -372,8 +377,8 @@ class VlcFallbackPlayer(
             // 卡死看过一次仍救不回来时（forceSoftVideo），视频也强制软解：
             // Amlogic 这类盒子的 MPEG-2/H.264 硬解在 libvlc 下有「播几秒定格」的毛病。
             media.setHWDecoderEnabled(!forceSoftVideo, false)
-            media.addOption(":network-caching=$NETWORK_CACHING_MS")
-            media.addOption(":live-caching=$NETWORK_CACHING_MS")
+            media.addOption(":network-caching=$networkCachingMs")
+            media.addOption(":live-caching=$networkCachingMs")
             // 直播流（TS/UDP/组播）的时钟抖动是「播几秒卡一下」的常见来源：
             // 默认的时钟同步会在时间戳跳变时反复重排，关掉抖动补偿反而更稳。
             media.addOption(":clock-jitter=0")
@@ -626,13 +631,14 @@ class VlcFallbackPlayer(
 
     private companion object {
         /**
-         * 直播缓存（毫秒）。
+         * 直播缓存（毫秒）默认值。
          *
          * 这个值必须大于一个分片的时长，否则每个分片边界都要停下来等下一段下载完 ——
          * HLS 分片普遍 4–6 秒，旧值 1000/1200 根本撑不过一个分片，表现就是
-         * 「播 5 秒左右卡一下」。取 4000 让 VLC 手里常备一个分片，代价是起播慢 1–2 秒。
+         * 「播 5 秒左右卡一下」。4000 只够一个分片，抖一下就断粮；
+         * 提到 8000 让 VLC 手里常备一个半到两个分片，代价是起播多等 1 秒左右。
          */
-        const val NETWORK_CACHING_MS = 4000
+        const val NETWORK_CACHING_MS = 8000
 
         /** 尺寸变化后延迟多久重建：留一帧给布局稳定 */
         const val RESTART_DELAY_MS = 420L

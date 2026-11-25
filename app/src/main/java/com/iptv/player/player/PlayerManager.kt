@@ -14,6 +14,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
@@ -45,6 +46,14 @@ class PlayerManager(
     private val bufferMaxMs: Int = 15000,
     private val bufferForPlaybackMs: Int = 1000,
     private val bufferForPlaybackAfterRebufferMs: Int = 2000,
+    /**
+     * 直播延迟（毫秒）：播放点落后直播边缘多远。
+     *
+     * 这是「进度条缓冲追不上、看着看着卡一下」最直接的旋钮。贴边播放时手里只有
+     * 一两秒库存，分片下载慢一档就立刻断粮；往后站十几秒，等于常备两三个分片，
+     * 靠库存把抖动顶过去。0 = 交给播放器自动（Media3 默认约 3 个分片）。
+     */
+    private val liveDelayMs: Int = 0,
     private val switchCooldownMs: Long = 8000L,
     /** 解码器优先策略：auto 自动 / hardware 硬解优先 / software 软解优先 */
     private val decoderPriority: String = "auto"
@@ -298,6 +307,15 @@ class PlayerManager(
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(mediaSourceFactory)
             .setBandwidthMeter(bandwidthMeter)
+            // 卡一次，就把「该站多远」往后挪 3 秒（默认只挪 0.5 秒）。
+            // 单码率直播源（免费 IPTV 绝大多数是单码率）没法靠切低码率救，
+            // 只能靠「多备一段」硬扛：每次断粮都自动加厚，越卡的源最后自动站得越远。
+            // 上限受直播窗口约束，站过头会被 Media3 夹回窗口内，不会失效。
+            .setLivePlaybackSpeedControl(
+                DefaultLivePlaybackSpeedControl.Builder()
+                    .setTargetLiveOffsetIncrementOnRebufferMs(3_000)
+                    .build()
+            )
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
@@ -842,6 +860,19 @@ class PlayerManager(
         // 地址里带 m3u8 就直接按 HLS 解析，避免被当成普通文件去下载
         if (source.url.contains(".m3u8", ignoreCase = true)) {
             builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+        }
+        // 直播点站位：0 = 交给 Media3 自动（它按「3 倍分片时长」算，6 秒分片约 18 秒），
+        // 大于 0 时按用户指定秒数往后站。
+        //
+        // 这里刻意不去锁 min/maxPlaybackSpeed：Media3 的变速控制器一旦被锁成 1.0，
+        // 会把自己算出来的目标偏移置为「未设置」，LoadControl 就失去「该缓冲到哪」的
+        // 依据，反而更容易在起播时只攒 1.5 秒就开播 —— 那是「看着看着卡一下」的来源。
+        if (liveDelayMs > 0) {
+            builder.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(liveDelayMs.toLong())
+                    .build()
+            )
         }
         val mediaItem = builder.build()
         currentMediaItem = mediaItem
