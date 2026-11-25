@@ -78,6 +78,12 @@ class PlayerManager(
         private const val FREEZE_TIMEOUT_MS = 15_000L
         /** 卡死巡检间隔 */
         private const val FREEZE_CHECK_INTERVAL_MS = 3_000L
+        /** 播放点离直播边缘小于该值就算「贴边」，再往前就没有分片可播了 */
+        private const val EDGE_MIN_OFFSET_MS = 3_000L
+        /** 贴边时退回到离边缘多远：8 秒约等于一个半 6 秒分片 */
+        private const val EDGE_TARGET_OFFSET_MS = 8_000L
+        /** 两次贴边退避的最小间隔，避免在边缘反复 seek */
+        private const val EDGE_NUDGE_COOLDOWN_MS = 12_000L
         /** 时间窗内反复卡死达到该次数，说明这条线路已经不可用，直接换线路 */
         private const val FREEZE_SWITCH_THRESHOLD = 4
         private const val FREEZE_SWITCH_WINDOW_MS = 300_000L
@@ -131,6 +137,9 @@ class PlayerManager(
     private var freezeRecoveries = 0
     /** 近期卡死时间点，用于判断「这条线路是不是已经废了」 */
     private val freezeTimestamps = ArrayDeque<Long>()
+
+    /** 上一次「贴边退避」的时间：直播走到边缘时往回挪几秒，需要冷却避免反复 seek */
+    private var lastEdgeNudgeMs = 0L
 
     /** 连续「卡死换线」次数：只有稳定播放够久才清零，防止两条线路无限来回切 */
     private var freezeSwitchChain = 0
@@ -894,6 +903,8 @@ class PlayerManager(
         lastProgressPositionMs = 0L
         lastProgressAtMs = 0L
         freezeRecoveries = 0
+        // 新线路重新开始，贴边退避的冷却也一起清零
+        lastEdgeNudgeMs = 0L
 
         player.setMediaItem(mediaItem, positionMs)
         player.prepare()
@@ -1015,6 +1026,9 @@ class PlayerManager(
         }
 
         val pos = player.currentPosition
+        // 贴边退避要在「判定卡死」之前做：走到直播边缘只是短暂断粮，
+        // 用几秒库存就能续上；等真判成卡死再走重连流程，用户已经多看了好几秒转圈。
+        nudgeOffLiveEdge(now)
         val progressAdvanced = pos != lastProgressPositionMs
         if (progressAdvanced) {
             lastProgressPositionMs = pos
@@ -1083,6 +1097,32 @@ class PlayerManager(
             } catch (ignored: Exception) {
                 // 交给下一轮巡检继续尝试
             }
+        }
+    }
+
+    /**
+     * 直播贴边退避：播放点走到窗口最右端时，往回挪几秒。
+     *
+     * 直播的窗口是有右端点的：播放点一旦贴到右端点，就必须停下等「下一个分片生成 +
+     * 播放列表刷新」，用户看到的就是「进度条走到头，停一两秒，然后跳一下接着走」。
+     * 此时往回 seek 到窗口内已缓冲的分片，既没有下载开销也不会黑屏，
+     * 却能立刻把连续播放接上——本质上是把「等分片」变成「提前几秒播」。
+     *
+     * 只在 STATE_BUFFERING 时动手，且带冷却：正常播放时绝不干预，不会莫名其妙后退。
+     */
+    private fun nudgeOffLiveEdge(now: Long) {
+        if (player.playbackState != Player.STATE_BUFFERING) return
+        if (!player.isCurrentMediaItemLive) return
+        val offset = player.currentLiveOffset
+        if (offset == C.TIME_UNSET || offset < 0L || offset >= EDGE_MIN_OFFSET_MS) return
+        if (now - lastEdgeNudgeMs < EDGE_NUDGE_COOLDOWN_MS) return
+        val back = EDGE_TARGET_OFFSET_MS - offset
+        if (back <= 0L) return
+        lastEdgeNudgeMs = now
+        try {
+            player.seekTo((player.currentPosition - back).coerceAtLeast(0L))
+        } catch (e: Exception) {
+            // 退避失败就走原来的卡死恢复流程，不需要额外处理
         }
     }
 

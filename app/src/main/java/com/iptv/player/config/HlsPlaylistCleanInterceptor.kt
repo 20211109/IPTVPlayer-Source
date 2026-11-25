@@ -51,6 +51,20 @@ class HlsPlaylistCleanInterceptor : Interceptor {
         var i = 0
         while (i < lines.size) {
             val line = lines[i]
+            // ===== 剔除「贴边」的 EXT-X-START =====
+            // #EXT-X-START:TIME-OFFSET 是源给播放器的起播建议。写成 0 或 -1/-2 时，
+            // Media3 会把播放点放在直播边缘，手里几乎没有库存：进度条一走到头就得
+            // 停下等下一个分片生成 + 播放列表刷新，表现正好是「走到头卡一下再跳」。
+            // 删掉这一行，播放器就退回「3 倍分片时长」自己站位（6 秒分片≈18 秒）。
+            // 源写的合理值（-6 及更早）保留，不干涉。
+            if (line.startsWith("#EXT-X-START", ignoreCase = true)) {
+                val offset = START_OFFSET_RE.find(line)
+                    ?.groupValues?.get(1)?.toFloatOrNull()
+                if (offset == null || offset > -MIN_START_OFFSET_S) {
+                    i++
+                    continue
+                }
+            }
             val isInf = line.startsWith("#EXTINF", ignoreCase = true)
             if (isInf && i + 1 < lines.size) {
                 val next = lines[i + 1]
@@ -91,5 +105,11 @@ class HlsPlaylistCleanInterceptor : Interceptor {
 
     private companion object {
         const val PAD_MARKER = "ysp-pad"
+
+        /** 起播建议至少要比直播边缘早这么多秒，否则视为「贴边」并剔除 */
+        const val MIN_START_OFFSET_S = 5f
+
+        val START_OFFSET_RE =
+            Regex("TIME-OFFSET\\s*=\\s*(-?[0-9]+(?:\\.[0-9]+)?)", RegexOption.IGNORE_CASE)
     }
 }
