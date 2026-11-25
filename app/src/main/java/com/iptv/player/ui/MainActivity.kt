@@ -1202,7 +1202,13 @@ class MainActivity : AppCompatActivity() {
     private fun applyVideoLayout() {
         // 自动去黑边只在「适应屏幕」时接管：用户手动选了裁切/拉伸/自定义缩放，就以用户为准，
         // 否则会出现「我明明选了裁切，它又给我改回去」的怪异行为。
-        val autoActive = cropMode != CropMode.NONE && playSettings.zoomMode == "fit"
+        //
+        // 还必须加一道几何闸：只有「画面比窗口窄」时铺满才有意义。
+        // 竖屏看 16:9 画面时情况正相反（画面比窗口宽），铺满=把左右各切掉七成，
+        // 而转屏瞬间 videoHost 可能还是旧方向、cropMode 还留着横屏的 STRETCH，
+        // 于是竖屏第一帧就被套上横屏的结论 —— 这就是「转竖屏后画面变成一小条」的成因。
+        val autoActive = cropMode != CropMode.NONE &&
+            playSettings.zoomMode == "fit" && videoNarrowerThanHost()
         // 去黑边的实现方式是「铺满」：画面放大到刚好盖住整屏，多出来的部分裁掉。
         //
         // 1.58 的实现是「把播放视图撑到比屏幕还大」，在 SurfaceView（盒子默认渲染方式）
@@ -1266,6 +1272,21 @@ class MainActivity : AppCompatActivity() {
             lp.gravity = Gravity.CENTER
             pv.layoutParams = lp
         }
+    }
+
+    /**
+     * 画面是否比宿主窗口更窄：只有这种情况才谈得上「左右留黑、要不要铺满」。
+     * 竖屏看 16:9 时是反过来的（画面比窗口宽），自动去黑边必须完全退出，
+     * 否则铺满会把左右各切掉七成，看起来就是「画面变成中间一小条」。
+     */
+    private fun videoNarrowerThanHost(): Boolean {
+        if (lastVideoW <= 0 || lastVideoH <= 0) return false
+        val hw = videoHost.width
+        val hh = videoHost.height
+        if (hw <= 0 || hh <= 0) return false
+        val hostAspect = hw.toFloat() / hh
+        val videoAspect = lastVideoW.toFloat() / lastVideoH
+        return videoAspect < hostAspect - 0.02f
     }
 
     /**
@@ -1472,6 +1493,13 @@ class MainActivity : AppCompatActivity() {
             applyAspectCrop()
             fallbackPlayer?.onHostResized()
             scheduleAutoCrop(2_200L)
+            // configChanges 回调早于重新布局：此刻 videoHost 还是旧尺寸，上面这轮用的是旧方向。
+            // 等布局落定再判一次，免得竖屏还挂着横屏的结论（反之亦然）。
+            uiHandler.postDelayed({
+                if (!isFinishing && !isDestroyed && pagePlayer.visibility == View.VISIBLE) {
+                    applyAspectCrop(silent = true, force = true)
+                }
+            }, 600L)
         }
     }
 

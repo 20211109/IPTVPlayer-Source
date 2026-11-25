@@ -255,8 +255,14 @@ class VlcFallbackPlayer(
         bufferW = 0
         bufferH = 0
         if (bufferAspect <= 0f) return
+        val hw = fallbackWidth()
         val hh = fallbackHeight()
-        if (hh <= 0) return
+        if (hw <= 0 || hh <= 0) return
+        // 只有「画面比窗口窄」时才建缓冲（缓冲比窗口窄 → 被拉开 → 铺满）。
+        // 反过来（竖屏看横屏画面）按视频比例算会得到 4906×2760 这种远超窗口的怪尺寸，
+        // 一裁一拉就是「画面只剩中间一小条」—— 竖屏必须是「适应窗口、上下留边」。
+        val hostAspect = hw.toFloat() / hh
+        if (bufferAspect >= hostAspect - 0.02f) return
         val w = (hh * bufferAspect).toInt()
         if (w < 32) return
         bufferW = w
