@@ -320,7 +320,7 @@ class VlcFallbackPlayer(
             // LibVLC 是全局单例（见 VlcCore）：这里只拿现成的实例，不再每次 new。
             // 旧写法在这里 new LibVLC() 要 1–3 秒，且发生在主线程，直接表现为界面卡死。
             val vlc = VlcCore.obtain(context) ?: run {
-                fail("兼容内核不可用（libvlc 初始化失败）")
+                fail(ERR_INIT)
                 return
             }
             val mp = MediaPlayer(vlc)
@@ -364,7 +364,7 @@ class VlcFallbackPlayer(
                         }
 
                         MediaPlayer.Event.EncounteredError -> mainHandler.post {
-                            if (!released && g == generation) fail("内核无法解码该流")
+                            if (!released && g == generation) fail(ERR_DECODE)
                         }
                     }
                 }
@@ -390,7 +390,7 @@ class VlcFallbackPlayer(
             media.release()
             mp.play()
         } catch (t: Throwable) {
-            fail("兼容内核不可用：${t.message ?: t.javaClass.simpleName}")
+            fail("$ERR_INIT_PREFIX：${t.message ?: t.javaClass.simpleName}")
         }
     }
 
@@ -523,7 +523,7 @@ class VlcFallbackPlayer(
             return
         }
         if (hardRestarts >= MAX_HARD_RESTARTS) {
-            fail("兼容内核画面卡住无法恢复")
+            fail(ERR_STALL)
             return
         }
         hardRestarts++
@@ -652,7 +652,26 @@ class VlcFallbackPlayer(
         /** 连续多少次时间戳不动判定为卡死（2.5s × 3 ≈ 7.5 秒） */
         const val STALL_HITS = 3
 
-        /** 最多重建几次去救卡死：两次还不行就降级为无声播放，别让画面永远定住 */
+        /** 最多重建几次去救卡死：两次还不行就交给界面换线路，全部线路都试过才降级 */
         const val MAX_HARD_RESTARTS = 2
+
+        /** 失败原因：libvlc 本身起不来 —— 与线路无关，换哪条都一样，没必要换线浪费时间 */
+        const val ERR_INIT = "兼容内核不可用（libvlc 初始化失败）"
+        const val ERR_INIT_PREFIX = "兼容内核不可用"
+
+        /** 失败原因：拿到了流但解不出来（分片损坏、封装异常等，通常换条线路就好了） */
+        const val ERR_DECODE = "内核无法解码该流"
+
+        /** 失败原因：重建到上限画面仍然定格 —— 这条线路在软解路径上已经废了 */
+        const val ERR_STALL = "兼容内核画面卡住无法恢复"
+
+        /**
+         * 这次失败是否「与线路有关」——决定界面该不该先换线路重试，再考虑降级。
+         *
+         * 软解内核接管期间 PlayerManager 处于挂起状态，卡顿换线入口全部不可用；
+         * 若直接降级成无声播放，就等于在一棵树上吊死。而 libvlc 初始化失败是全局
+         * 能力问题，换成哪条线路都一样，跳过换线能省下十几秒。
+         */
+        fun isLineFailure(reason: String): Boolean = !reason.startsWith(ERR_INIT_PREFIX)
     }
 }

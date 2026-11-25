@@ -163,6 +163,13 @@ class PlayerManager(
 
     /** 起播尝试轮次：所有线路按顺序试完一遍算一轮，用于限制「全线路重试」次数 */
     private var startupRounds = 0
+    /**
+     * 软解（兜底内核）阶段已经试过的线路。
+     *
+     * 必须与 [triedIndices] 分开记：Exo 能播不代表 VLC 也能播，反之亦然。
+     * 只有这个集合里的线路全部试过，才允许降级成「无声播放」。
+     */
+    private val fallbackTriedIndices = mutableSetOf<Int>()
     /** 当前频道是否已经因音频编码不支持（如 MP2）而回退为无声播放 */
     private var audioCompatApplied = false
     /** 用户在设置里强制「仅视频、关闭音频」 */
@@ -187,6 +194,9 @@ class PlayerManager(
 
     /** 所有线路都卡住、自动换线已暂停时回调 */
     var onAllSourcesStuck: (() -> Unit)? = null
+
+    /** 软解内核失败后自动换线的回调（参数：新线路序号、线路总数） */
+    var onFallbackSwitched: ((Int, Int) -> Unit)? = null
 
     /** 起播超时自动换到下一线路后回调（界面用它提示用户） */
     var onStartTimeoutSwitched: (() -> Unit)? = null
@@ -692,6 +702,8 @@ class PlayerManager(
     fun playChannel(channel: Channel) {
         currentChannel = channel
         triedIndices.clear()
+        // 换频道 = 软解阶段的重试记录也作废，新频道每条线路都该有一次软解机会
+        fallbackTriedIndices.clear()
         startupRounds = 0
         consecutiveFailures = 0
         givenUp = false
@@ -769,6 +781,8 @@ class PlayerManager(
         givenUp = false
         startupRounds = 0
         triedIndices.clear()
+        // 用户亲自指定线路：软解阶段的失败记录一并清空，别再拿旧结论挡他
+        fallbackTriedIndices.clear()
         freezeRecoveries = 0
         freezeTimestamps.clear()
         freezeSwitchChain = 0
@@ -796,6 +810,8 @@ class PlayerManager(
         givenUp = false
         startupRounds = 0
         triedIndices.clear()
+        // 用户主动换线同样清空软解失败记录：他明确指出「这条不行」，就别再自动跳回
+        fallbackTriedIndices.clear()
         freezeRecoveries = 0
         freezeTimestamps.clear()
         freezeSwitchChain = 0
@@ -853,9 +869,48 @@ class PlayerManager(
         return true
     }
 
+    /**
+     * 兜底内核（VLC）彻底失败后的换线入口：先换线路，全部线路都试过才允许降级。
+     *
+     * 为什么必须单独开一个入口：软解接管期间本类处于 [suspended] 状态，
+     * [switchToNextSourceOnStall] 与 [switchToNextSource] 都会被「挂起 / 锁台」挡掉。
+     * 于是 VLC 一旦卡死，旧代码只能重启同一条线路，`MAX_HARD_RESTARTS` 用完就直接
+     * 变成无声播放 —— 明明换条线路就能看，却在一条烂线路上吊死。这正是
+     * 「只有 MP2 那几个频道老是卡」最直接的原因。
+     *
+     * 每条线路在软解阶段只试一次，天然不会来回乒乓；用户手动换源会清空这份记录，
+     * 相当于重新给一次机会。
+     *
+     * @return true = 已经切到新线路（界面应等它重新起播）；false = 没有可换的线路
+     */
+    fun switchToNextSourceAfterFallbackFailure(): Boolean {
+        val channel = currentChannel ?: return false
+        fallbackTriedIndices.add(currentSourceIndex)
+        val next = channel.sources.indices.firstOrNull {
+            it != currentSourceIndex && it !in fallbackTriedIndices
+        } ?: return false
+
+        // 「锁台」结论只对 Exo 成立：软解阶段失败说明这条线路在这个内核上不可用，
+        // 新线路必须拿到完整的起播机会（含卡死换线、起播看门狗、无声检测）。
+        hasEverPlayed = false
+        givenUp = false
+        startupRounds = 0
+        freezeRecoveries = 0
+        freezeTimestamps.clear()
+        freezeSwitchChain = 0
+        stableSinceMs = 0L
+        stallSwitchChain = 0
+        stallSwitchCooldownUntilMs = 0L
+        freezeSwitchGraceUntilMs = System.currentTimeMillis() + FREEZE_SWITCH_GRACE_MS
+        // switchTo 内部会解除挂起、把 audioCompatApplied 复位，并重新排无声检测，
+        // 新线路于是会再走一遍「识别音轨 → 仍需软解就再开 VLC」的完整流程。
+        switchTo(next, C.TIME_UNSET)
+        onFallbackSwitched?.invoke(next, channel.sources.size)
+        return true
+    }
+
     /** 真正执行切源：记录尝试、设置媒体源、从直播点起播 */
-    private fun switchTo(index: Int, positionMs: Long) {
-        val channel = currentChannel ?: return
+    private fun switchTo(index: Int, positionMs: Long) {        val channel = currentChannel ?: return
         val source = channel.sources.getOrNull(index) ?: return
         triedIndices.add(index)
         currentSourceIndex = index

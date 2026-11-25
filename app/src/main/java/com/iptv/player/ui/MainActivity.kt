@@ -1112,6 +1112,13 @@ class MainActivity : AppCompatActivity() {
                 setStatus("$currentLineLabel · 画面卡顿，已切换线路", R.color.yellow)
             }
         }
+        // 软解内核彻底卡死后自动换线：用户需要知道画面为什么从头来了一遍
+        pm.onFallbackSwitched = { idx, total ->
+            runOnUiThread {
+                currentLineLabel = if (total > 1) "线路 ${idx + 1}/$total" else "直播"
+                setStatus("$currentLineLabel · 软解卡顿，换线路重试…", R.color.yellow)
+            }
+        }
         // 所有线路都卡死：停止来回换线，冷却 2 分钟后再允许
         pm.onAllSourcesStuck = {
             runOnUiThread {
@@ -1524,8 +1531,23 @@ class MainActivity : AppCompatActivity() {
         fun giveUp(reason: String) {
             if (handled) return
             handled = true
+            // 先放掉 VLC 再决定下一步：盒子上的 MediaCodec 实例有限，
+            // 不释放它，接下来无论是换线还是回到 Exo 都起不来
             releaseVlcFallback()
             playerViewRef?.visibility = View.VISIBLE
+
+            // ① 优先换线路。软解管线已经救不回来（重建到上限仍然定格）时，
+            //    重启同一条线路只是原地打转 —— 那正是「MP2 那几个频道老是卡」的由来。
+            //    libvlc 本身起不来属于全局问题，换成哪条都一样，跳过换线省十几秒。
+            if (VlcFallbackPlayer.isLineFailure(reason) &&
+                playerManager?.switchToNextSourceAfterFallbackFailure() == true
+            ) {
+                pbLoading.visibility = View.VISIBLE
+                toast("这条线路软解卡住了，换线路重试")
+                return
+            }
+
+            // ② 所有线路的软解都失败过，才降级：保留画面、放弃声音
             pbLoading.visibility = View.GONE
             playerManager?.continueWithoutAudio()
             toast("${audioDesc}软解失败（$reason），已转为无声播放")
