@@ -96,9 +96,14 @@ class MainActivity : AppCompatActivity() {
     private var updateJob: kotlinx.coroutines.Job? = null
     /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
     private lateinit var liveSwipe: GestureDetector
-    private val hideStatsRunnable = Runnable {
-        if (!playSettings.showStats) statsBar.visibility = View.GONE
-    }
+    /**
+     * 顶部信息条（返回 / 换源 / 竖屏 + 状态字）自动淡出的定时器。
+     * 直播时这些控件一直压在画面上，既挡内容又影响观感；几秒没操作就收起来，
+     * 按键或触摸一下屏幕再唤出（见 showOverlay / hideOverlay）。
+     */
+    private val overlayHideRunnable = Runnable { hideOverlay() }
+    /** 顶部信息条当前是否处于「显示」状态 */
+    private var overlayVisible = true
     /** 节目单浮层只短暂显示，避免长时间盖住画面 */
     private val hideEpgRunnable = Runnable { epgPanel.visibility = View.GONE }
 
@@ -121,6 +126,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ivHeroLogo: ImageView
     private lateinit var dotStatus: View
     private lateinit var statsBar: View
+    /** 顶部信息条整体（含半透明渐变底）与其中的按钮行 */
+    private lateinit var topPanel: View
+    private lateinit var btnRow: View
     private lateinit var pbLoading: ProgressBar
     // 节目单
     private lateinit var epgPanel: View
@@ -169,12 +177,6 @@ class MainActivity : AppCompatActivity() {
     private var lastVideoW = 0
     private var lastVideoH = 0
 
-    /** 状态栏里「播放中（xx 软解）」这半句，供后续追加实测信息用 */
-    private var vlcStatusBase = ""
-    /** 铺满生效性自检：最多补采两次（暗场可能采不出黑边） */
-    private var stretchProbeCount = 0
-    private val stretchProbeRunnable = Runnable { probeStretchFill() }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -203,6 +205,8 @@ class MainActivity : AppCompatActivity() {
         ivHeroLogo = findViewById(R.id.ivHeroLogo)
         dotStatus = findViewById(R.id.dotStatus)
         statsBar = findViewById(R.id.statsBar)
+        topPanel = findViewById(R.id.topPanel)
+        btnRow = findViewById(R.id.btnRow)
         pbLoading = findViewById(R.id.pbLoading)
         epgPanel = findViewById(R.id.epgPanel)
         tvEpgTime = findViewById(R.id.tvEpgTime)
@@ -366,6 +370,9 @@ class MainActivity : AppCompatActivity() {
         if (pagePlayer.visibility != View.VISIBLE || sourceDialog?.isShowing == true) {
             return super.dispatchKeyEvent(event)
         }
+        // 顶部信息条收起后，按任意键先把它唤出来（并重新开始计时），再照常处理这次按键。
+        // 这样「按一下 → 看见返回/换源」的直觉成立，也不用专门加一个「显示菜单」键。
+        if (event.action == KeyEvent.ACTION_DOWN) showOverlay()
         // 长按确认键呼出频道表：按下开始计时，抬起时若已弹出则把这次抬起吃掉，
         // 避免同一次长按又「点」到顶部栏按钮或播放器控制条。
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
@@ -440,6 +447,8 @@ class MainActivity : AppCompatActivity() {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (::liveSwipe.isInitialized && pagePlayer.visibility == View.VISIBLE) {
             liveSwipe.onTouchEvent(event)
+            // 触摸一下就把顶部信息条唤回来（音量/状态/返回按钮都在里面）
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) showOverlay()
         }
         return super.dispatchTouchEvent(event)
     }
@@ -1449,37 +1458,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * 铺满生效性自检：软解内核起来 5 秒后量一帧，把「左右还留了多宽」写进状态栏。
-     *
-     * 为什么必须量：1.61 把「拉伸」交给 VLC 的 setVideoScale，真机上一动不动 ——
-     * 光看代码分不清是「指令没下发」还是「内核不认」。量一帧就能分清：
-     * 留边 ≈ 0% = 铺满真的生效了；留边 15% 以上 = 连缓冲拉伸都被系统忽略，得换渲染方式。
-     */
-    private fun probeStretchFill() {
-        val fb = fallbackPlayer ?: return
-        if (!playSettings.autoCrop || playSettings.zoomMode != "fit") return
-        val geo = fb.stretchBufferLabel() ?: return
-        val surface = fb.videoSurface() ?: return
-        BlackBarDetector.capture(surface, false) { bmp ->
-            uiHandler.post {
-                val insets = bmp?.let { BlackBarDetector.analyze(it) }
-                if (insets == null) {
-                    // 暗场 / 刚切镜：补采两次再下结论
-                    if (stretchProbeCount < 2) {
-                        stretchProbeCount++
-                        uiHandler.postDelayed(stretchProbeRunnable, 3_000L)
-                    }
-                    return@post
-                }
-                val bar = (maxOf(insets.horizontal, insets.vertical) * 100f).toInt()
-                if (vlcStatusBase.isNotEmpty() && fallbackPlayer === fb) {
-                    setStatus("$vlcStatusBase · 拉伸 $geo · 留边 ${bar.coerceAtLeast(0)}%", R.color.green)
-                }
-            }
-        }
-    }
-
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         // Activity 声明了 configChanges，旋转不会重建：此时必须重新计算缩放尺寸。
@@ -1551,17 +1529,7 @@ class MainActivity : AppCompatActivity() {
                 // force：VLC 重建管线（转屏、卡死恢复）后是新实例，画幅要重灌一遍。
                 applyAspectCrop(silent = true, force = true)
                 // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
-                // 状态里带上渲染缓冲尺寸：一眼就能看出「铺满」到底有没有真正下发
-                // （没有这段后缀 = 没拿到视频比例，也就谈不上铺满）。
-                val geo = fallbackPlayer?.stretchBufferLabel()
-                vlcStatusBase = "$currentLineLabel · 播放中（${audioDesc}软解）"
-                setStatus(vlcStatusBase + if (geo != null) " · 拉伸 $geo" else "", R.color.green)
-                // 过几秒量一帧：铺满到底有没有生效，只有看像素才知道
-                if (geo != null) {
-                    stretchProbeCount = 0
-                    uiHandler.removeCallbacks(stretchProbeRunnable)
-                    uiHandler.postDelayed(stretchProbeRunnable, 5_000L)
-                }
+                setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 // 软解路径出画更慢，多等一会儿再采样黑边
                 scheduleAutoCrop(3_500L)
             },
@@ -1656,6 +1624,8 @@ class MainActivity : AppCompatActivity() {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
         btnFullscreen.text = getString(if (isLandscapePlayback) R.string.exit_fullscreen else R.string.fullscreen)
+        // 转屏后条子会被重建的布局带出来，重新计时，避免刚转完就消失
+        showOverlay()
     }
 
     /** 把播放器的英文报错翻译成用户看得懂的原因，并带上错误码便于截图定位 */
@@ -1682,10 +1652,52 @@ class MainActivity : AppCompatActivity() {
         dotStatus.background = ContextCompat.getDrawable(this, R.drawable.bg_dot_green)?.mutate()?.apply {
             setTint(ContextCompat.getColor(this@MainActivity, colorRes))
         }
-        // 状态提示只在切换/出错时短暂出现，不长期占用画面
+        // 状态提示跟着顶部信息条一起走：出现时把按钮也一并唤出，几秒后整体淡出
         statsBar.visibility = View.VISIBLE
-        uiHandler.removeCallbacks(hideStatsRunnable)
-        uiHandler.postDelayed(hideStatsRunnable, 5000)
+        showOverlay()
+    }
+
+    /**
+     * 显示播放页顶部信息条，并在若干秒后自动淡出。
+     *
+     * 起播、切台、换源、出错提示、按键、触摸都会调用它，所以「最后一次操作之后
+     * 几秒」条子就消失，不会一直压在画面上。@param autoHideMs 0 = 本次不自动隐藏。
+     */
+    private fun showOverlay(autoHideMs: Long = OVERLAY_AUTO_HIDE_MS) {
+        if (pagePlayer.visibility != View.VISIBLE) return
+        uiHandler.removeCallbacks(overlayHideRunnable)
+        overlayVisible = true
+        btnRow.visibility = View.VISIBLE
+        topPanel.animate().cancel()
+        if (topPanel.visibility != View.VISIBLE) {
+            topPanel.visibility = View.VISIBLE
+            topPanel.alpha = 0f
+        }
+        if (topPanel.alpha < 1f) topPanel.animate().alpha(1f).setDuration(160L).start()
+        if (autoHideMs > 0L) uiHandler.postDelayed(overlayHideRunnable, autoHideMs)
+    }
+
+    /** 顶部信息条淡出。只动界面，不碰播放、不碰画幅，所以不会有任何画面抖动。 */
+    private fun hideOverlay() {
+        if (pagePlayer.visibility != View.VISIBLE) return
+        // 弹窗开着时不要收：用户可能正对着换源列表/设置/频道表操作
+        if (sourceDialog?.isShowing == true || pickerDialog?.isShowing == true) {
+            uiHandler.postDelayed(overlayHideRunnable, 1_500L)
+            return
+        }
+        overlayVisible = false
+        // 焦点若停在按钮上，收起来后必须交还，否则遥控器按「确定」会落空
+        (currentFocus as? Button)?.clearFocus()
+        if (playSettings.showStats) {
+            // 用户特意开了「显示播放状态」：只收按钮，状态条留着
+            btnRow.visibility = View.GONE
+            return
+        }
+        statsBar.visibility = View.GONE
+        topPanel.animate().cancel()
+        topPanel.animate().alpha(0f).setDuration(200L).withEndAction {
+            if (!overlayVisible) topPanel.visibility = View.INVISIBLE
+        }.start()
     }
 
     private fun showPlayerPage() {
@@ -1699,10 +1711,19 @@ class MainActivity : AppCompatActivity() {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
         hideSystemUi()
+        // 每次进播放页都从「看得见」开始，几秒后再淡出
+        showOverlay()
     }
 
     private fun closePlayer() {
         uiHandler.removeCallbacks(pickerLongPressRunnable)
+        uiHandler.removeCallbacks(overlayHideRunnable)
+        // 退出时把顶部信息条复位成可见，下次进来不会看到一片空白
+        topPanel.animate().cancel()
+        topPanel.alpha = 1f
+        topPanel.visibility = View.VISIBLE
+        btnRow.visibility = View.VISIBLE
+        overlayVisible = true
         // 退出播放就不再需要黑边采样，顺便把放大撤掉
         resetAutoCrop()
         pickerDialog?.dismiss()
@@ -2087,7 +2108,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         com.iptv.player.update.InstallResultReceiver.detach(this)
-        uiHandler.removeCallbacks(hideStatsRunnable)
+        uiHandler.removeCallbacks(overlayHideRunnable)
         uiHandler.removeCallbacks(pickerLongPressRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
         releaseVlcFallback()
@@ -2106,3 +2127,5 @@ private const val FALLBACK_START_TIMEOUT_MS = 12_000L
 private const val AUTO_CROP_RETRY_MS = 1_300L
 /** 自动去黑边：单轮最多采样几次（缓冲时间长、暗场时不要无限追着看） */
 private const val MAX_AUTO_CROP_TRIES = 6
+/** 播放页顶部信息条：最后一次操作后多久自动淡出（毫秒） */
+private const val OVERLAY_AUTO_HIDE_MS = 4_500L

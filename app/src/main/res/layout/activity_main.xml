@@ -341,7 +341,10 @@
             android:indeterminateTint="@color/primary"
             android:visibility="gone" />
 
+        <!-- 顶部信息条：播放开始几秒后自动淡出，避免按钮和状态字长期压住画面；
+             按任意键 / 触摸一下即重新出现（见 MainActivity.showOverlay） -->
         <LinearLayout
+            android:id="@+id/topPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -349,6 +352,7 @@
             android:padding="20dp">
 
             <LinearLayout
+                android:id="@+id/btnRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"

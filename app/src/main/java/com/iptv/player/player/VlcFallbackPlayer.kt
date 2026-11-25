@@ -103,10 +103,6 @@ class VlcFallbackPlayer(
         if (!released && player != null) scheduleRestart()
     }
 
-    /** 给状态栏用：当前渲染缓冲尺寸（null = 没在拉伸） */
-    fun stretchBufferLabel(): String? =
-        if (bufferW > 0 && bufferH > 0) "$bufferW×$bufferH" else null
-
     private var currentUrl: String? = null
 
     /** 硬解被判定为「播几秒就定格」之后置位：这一条流改成视频软解重开 */
