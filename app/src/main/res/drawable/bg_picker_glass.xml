@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    频道选择浮层的「磨砂玻璃」面板。
+    频道选择浮层的「磨砂玻璃」面板（tvOS 观感）。
     真实背景模糊由 ChannelPickerDialog 在 Android 12+ 上叠加系统模糊实现；
-    低版本没有系统模糊，就用这四层叠出毛玻璃观感：
-      1) 半透明深色底——透出后面的播放画面，而不是一块死黑的板子；
+    低版本没有系统模糊，就用这几层叠出毛玻璃观感：
+      1) 近黑半透明底——透出后面的播放画面，而不是一块死黑的板子；
       2) 左上→右下的白色微渐变——玻璃表面的高光反射；
       3) 1dp 高光描边——玻璃边缘的厚度感；
-      4) 大圆角——不再是硬邦邦的方框。
+      4) 28dp 大圆角。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- 1) 半透明底 -->
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#DE39414E" />
-            <corners android:radius="26dp" />
+            <solid android:color="#E61A1A1C" />
+            <corners android:radius="28dp" />
         </shape>
     </item>
 
@@ -25,9 +25,9 @@
                 android:angle="315"
                 android:centerColor="#08FFFFFF"
                 android:endColor="#00FFFFFF"
-                android:startColor="#1FFFFFFF"
+                android:startColor="#18FFFFFF"
                 android:type="linear" />
-            <corners android:radius="26dp" />
+            <corners android:radius="28dp" />
         </shape>
     </item>
 
@@ -37,8 +37,8 @@
             <solid android:color="#00000000" />
             <stroke
                 android:width="1dp"
-                android:color="#38FFFFFF" />
-            <corners android:radius="26dp" />
+                android:color="#3DFFFFFF" />
+            <corners android:radius="28dp" />
         </shape>
     </item>
 </layer-list>

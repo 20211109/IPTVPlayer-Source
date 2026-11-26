@@ -32,18 +32,14 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <View
-                    android:layout_width="4dp"
-                    android:layout_height="30dp"
-                    android:background="@drawable/bg_brand_button"
-                    android:layout_marginEnd="12dp" />
-
+                <!-- tvOS 不靠彩色竖条标识品牌，直接用大字标题 + 紧字距 -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/brand_name"
                     android:textSize="@dimen/brand_name_text"
                     android:textStyle="bold"
+                    android:letterSpacing="-0.02"
                     android:textColor="@color/text_primary" />
 
                 <TextView
@@ -55,11 +51,11 @@
                     android:maxLines="1"
                     android:ellipsize="end"
                     android:text="@string/brand_sub"
-                    android:textSize="10sp"
-                    android:letterSpacing="0.18"
-                    android:textColor="@color/primary"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginTop="8dp" />
+                    android:textSize="11sp"
+                    android:letterSpacing="0.03"
+                    android:textColor="@color/text_secondary"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginTop="6dp" />
             </LinearLayout>
         </LinearLayout>
 

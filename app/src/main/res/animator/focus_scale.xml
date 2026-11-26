@@ -1,21 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    tvOS 的焦点反馈：放大 + 抬升 + 稍慢的缓出。
+    1.08 比原来的 1.06 更明确；180ms 的 fast_out_slow_in 让停下时更「稳」，
+    不会像 140ms 那样有点跳。
+-->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <set>
             <objectAnimator
                 android:propertyName="scaleX"
-                android:valueTo="1.06"
-                android:duration="140"
+                android:valueTo="1.08"
+                android:duration="180"
                 android:interpolator="@android:interpolator/fast_out_slow_in" />
             <objectAnimator
                 android:propertyName="scaleY"
-                android:valueTo="1.06"
-                android:duration="140"
+                android:valueTo="1.08"
+                android:duration="180"
                 android:interpolator="@android:interpolator/fast_out_slow_in" />
             <objectAnimator
                 android:propertyName="translationZ"
-                android:valueTo="12dp"
-                android:duration="140" />
+                android:valueTo="16dp"
+                android:duration="180" />
         </set>
     </item>
     <item android:state_pressed="true">
@@ -26,9 +31,11 @@
     </item>
     <item>
         <set>
-            <objectAnimator android:propertyName="scaleX" android:valueTo="1.0" android:duration="140" />
-            <objectAnimator android:propertyName="scaleY" android:valueTo="1.0" android:duration="140" />
-            <objectAnimator android:propertyName="translationZ" android:valueTo="0dp" android:duration="140" />
+            <objectAnimator android:propertyName="scaleX" android:valueTo="1.0" android:duration="180"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+            <objectAnimator android:propertyName="scaleY" android:valueTo="1.0" android:duration="180"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+            <objectAnimator android:propertyName="translationZ" android:valueTo="0dp" android:duration="180" />
         </set>
     </item>
 </selector>
