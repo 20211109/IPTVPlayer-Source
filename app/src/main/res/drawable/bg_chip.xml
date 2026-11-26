@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 分组标签：tvOS 的分段控件观感 —— 选中/聚焦靠提亮和白色描边，不用蓝色填充 -->
+<!-- 分组标签：选中浅灰底 + 蓝描边，聚焦白底 + 蓝描边，保持深灰文字始终清晰 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_selected="true">
         <shape android:shape="rectangle">
-            <solid android:color="#FF3A3A3C" />
+            <solid android:color="#FFE5E5EA" />
             <corners android:radius="20dp" />
-            <stroke android:width="1dp" android:color="#99FFFFFF" />
+            <stroke android:width="1.5dp" android:color="#FF007AFF" />
         </shape>
     </item>
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="#FF2C2C2E" />
+            <solid android:color="#FFFFFFFF" />
             <corners android:radius="20dp" />
-            <stroke android:width="1.5dp" android:color="#FFFFFFFF" />
+            <stroke android:width="2dp" android:color="#FF007AFF" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FF1C1C1E" />
+            <solid android:color="#FFFFFFFF" />
             <corners android:radius="20dp" />
-            <stroke android:width="1dp" android:color="#0DFFFFFF" />
+            <stroke android:width="1dp" android:color="#FFD8D8DD" />
         </shape>
     </item>
 </selector>

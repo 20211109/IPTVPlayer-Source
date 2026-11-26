@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    tvOS 频道卡：黑底上是深灰玻璃块，选中时提亮一档 + 一圈白色描边。
-    不再用蓝色描边 —— Apple TV 的焦点靠「变亮 + 放大 + 白边」，不靠彩色。
+    浅色频道卡：白卡 + 发丝描边；焦点时浅灰底 + 蓝色描边。
+    蓝色只在焦点出现，平时整页只有白、浅灰、深灰三种层次。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <solid android:color="#FF3A3A3C" />
+            <solid android:color="#FFE5E5EA" />
             <corners android:radius="16dp" />
-            <stroke android:width="1.5dp" android:color="#E6FFFFFF" />
+            <stroke android:width="1.5dp" android:color="#FF007AFF" />
         </shape>
     </item>
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
-            <solid android:color="#FF48484A" />
+            <solid android:color="#FFD8D8DD" />
             <corners android:radius="16dp" />
-            <stroke android:width="1dp" android:color="#B3FFFFFF" />
+            <stroke android:width="1dp" android:color="#FF007AFF" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FF1C1C1E" />
+            <solid android:color="#FFFFFFFF" />
             <corners android:radius="16dp" />
-            <stroke android:width="1dp" android:color="#0DFFFFFF" />
+            <stroke android:width="1dp" android:color="#14000000" />
         </shape>
     </item>
 </selector>

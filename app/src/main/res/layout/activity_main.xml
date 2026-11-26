@@ -16,7 +16,10 @@
         android:paddingEnd="@dimen/page_padding"
         android:paddingTop="@dimen/page_padding_top">
 
-        <!-- 顶部：大标题 + 极简强调条 -->
+        <!--
+            顶部标签导航：当前页 + 三个入口。
+            三个入口的 id 和点击逻辑都不变，只是从右上角按钮改成标签形态。
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -24,42 +27,60 @@
             android:gravity="center_vertical"
             android:layout_marginBottom="@dimen/header_gap">
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:minHeight="40dp"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:background="@drawable/bg_tab"
+                android:selected="true"
+                android:text="@string/channel_list_title"
+                android:textSize="@dimen/top_button_text"
+                android:textStyle="bold"
+                android:textColor="#FFFFFFFF"
+                android:focusable="false"
+                android:clickable="false" />
+
+            <Button
+                android:id="@+id/btnConfig"
+                style="@style/TabButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
                 android:minWidth="0dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/btn_config"
+                android:textSize="@dimen/top_button_text" />
 
-                <!-- tvOS 不靠彩色竖条标识品牌，直接用大字标题 + 紧字距 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/brand_name"
-                    android:textSize="@dimen/brand_name_text"
-                    android:textStyle="bold"
-                    android:letterSpacing="-0.02"
-                    android:textColor="@color/text_primary" />
+            <Button
+                android:id="@+id/btnAbout"
+                style="@style/TabButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/about_entry"
+                android:textSize="@dimen/top_button_text" />
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:minWidth="0dp"
-                    android:singleLine="true"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="@string/brand_sub"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.03"
-                    android:textColor="@color/text_secondary"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginTop="6dp" />
-            </LinearLayout>
+            <Button
+                android:id="@+id/btnSettings"
+                style="@style/TabButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/settings"
+                android:textSize="@dimen/top_button_text" />
         </LinearLayout>
 
-        <!-- 焦点频道卡片：中性石墨 + 发丝描边，不做霓虹渐变 -->
+        <!-- 焦点频道卡片：白卡 + 发丝描边 -->
         <FrameLayout
             android:id="@+id/heroCard"
             android:layout_width="match_parent"
@@ -204,65 +225,7 @@
                 android:textSize="@dimen/card_meta"
                 android:textColor="@color/text_hint" />
 
-            <!-- 三个入口放进可横向收缩的容器：
-                 手机上「直播频道 + 频道数 + 三个按钮」总宽会超过屏幕宽度，
-                 旧版会把「设置」整个挤出屏幕外。现在按钮区占满剩余宽度，
-                 放得下就右对齐（跟原设计一致），放不下也能在区域内滚动，
-                 任何屏宽都不会再被裁掉。 -->
-            <HorizontalScrollView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:fillViewport="true"
-                android:focusable="false"
-                android:overScrollMode="never"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:gravity="end|center_vertical"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnConfig"
-                        style="@style/GhostButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:minWidth="0dp"
-                        android:minHeight="@dimen/top_button_height"
-                        android:paddingStart="@dimen/top_button_padding"
-                        android:paddingEnd="@dimen/top_button_padding"
-                        android:text="@string/btn_config"
-                        android:textSize="@dimen/top_button_text" />
-
-                    <Button
-                        android:id="@+id/btnAbout"
-                        style="@style/GhostButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="@dimen/top_button_gap"
-                        android:minWidth="0dp"
-                        android:minHeight="@dimen/top_button_height"
-                        android:paddingStart="@dimen/top_button_padding"
-                        android:paddingEnd="@dimen/top_button_padding"
-                        android:text="@string/about_entry"
-                        android:textSize="@dimen/top_button_text" />
-
-                    <Button
-                        android:id="@+id/btnSettings"
-                        style="@style/GhostButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="@dimen/top_button_gap"
-                        android:minWidth="0dp"
-                        android:minHeight="@dimen/top_button_height"
-                        android:paddingStart="@dimen/top_button_padding"
-                        android:paddingEnd="@dimen/top_button_padding"
-                        android:text="@string/settings"
-                        android:textSize="@dimen/top_button_text" />
-                </LinearLayout>
-            </HorizontalScrollView>
+        <!-- 三个入口已移到顶部标签行，这里只留分区标题和频道数 -->
         </LinearLayout>
 
         <HorizontalScrollView

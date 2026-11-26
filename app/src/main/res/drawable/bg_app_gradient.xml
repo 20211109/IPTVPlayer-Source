@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- tvOS 式背景：近纯黑，只在中间透出一点深灰，避免整块死黑压住卡片 -->
+<!-- 浅灰底：中间提亮一档，白卡压在上面层次刚好 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
         android:angle="270"
-        android:startColor="#FF000000"
-        android:centerColor="#FF0C0C0E"
-        android:endColor="#FF000000"
+        android:startColor="#FFF2F2F7"
+        android:centerColor="#FFFFFFFF"
+        android:endColor="#FFF2F2F7"
         android:type="linear" />
 </shape>

@@ -1,43 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        Apple TV（tvOS）风格配色。
-        结构没变：背景压到纯黑，表面改用深灰，靠「黑底 + 亮一档的卡片」形成层次。
-        早先是 #2B313A 灰底配更灰的卡片，那是一种平铺的层次；
-        现在卡片比背景明显亮，焦点再提亮一档并加白色描边，
-        这正是 tvOS 在暗环境里的做法 —— 对比更干净，久看也不闷。
+        浅色「云端白」方案（Apple 设置页观感）。
+        搭配原则：浅灰底 + 白卡 + 深一档焦点 + 单一蓝色强调，不做多色混搭。
+        文字用深灰 #1C1C1E 而非纯黑，白底上不扎眼。
     -->
     <color name="black">#FF000000</color>
-    <color name="background">#FF000000</color>
-    <color name="background_2">#FF0A0A0C</color>
+    <color name="background">#FFF2F2F7</color>
+    <color name="background_2">#FFFFFFFF</color>
 
-    <!-- 表面：tvOS 分组背景 #1C1C1E / 抬升态 #2C2C2E -->
-    <color name="surface">#FF1C1C1E</color>
-    <color name="surface_2">#FF2C2C2E</color>
-    <color name="card">#FF1C1C1E</color>
-    <color name="card_focus">#FF3A3A3C</color>
+    <!-- 表面：白卡 + 浅灰焦点 -->
+    <color name="surface">#FFFFFFFF</color>
+    <color name="surface_2">#FFF2F2F7</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="card_focus">#FFE5E5EA</color>
 
-    <!-- 强调色：tvOS 的焦点主要靠白色，蓝色只留给数值、链接和可改项 -->
-    <color name="brand_cyan">#FF0A84FF</color>
-    <color name="brand_blue">#FF0A84FF</color>
-    <color name="brand_purple">#FF636366</color>
-    <color name="primary">#FF0A84FF</color>
-    <color name="primary_dark">#FF0071E3</color>
-    <color name="accent">#FF64D2FF</color>
+    <!-- 强调色：iOS 蓝，只用于焦点、可点元素和数值 -->
+    <color name="brand_cyan">#FF007AFF</color>
+    <color name="brand_blue">#FF007AFF</color>
+    <color name="brand_purple">#FF8E8E93</color>
+    <color name="primary">#FF007AFF</color>
+    <color name="primary_dark">#FF0062CC</color>
+    <color name="accent">#FF007AFF</color>
 
-    <!-- 文本：对应 iOS 的 label / secondaryLabel / tertiaryLabel -->
-    <color name="text_primary">#FFFFFFFF</color>
-    <color name="text_secondary">#FF98989E</color>
-    <color name="text_hint">#FF6E6E73</color>
+    <!-- 文字：深灰三级 -->
+    <color name="text_primary">#FF1C1C1E</color>
+    <color name="text_secondary">#FF6E6E73</color>
+    <color name="text_hint">#FF8E8E93</color>
 
-    <!-- 状态色沿用 iOS 系统色 -->
-    <color name="green">#FF30D158</color>
-    <color name="yellow">#FFFFD60A</color>
-    <color name="red">#FFFF453E</color>
+    <!-- 状态色：iOS 系统色 -->
+    <color name="green">#FF34C759</color>
+    <color name="yellow">#FFFFCC00</color>
+    <color name="red">#FFFF3B30</color>
 
-    <!-- 分隔线与描边：全部是半透明白，不引入新的色相 -->
+    <!-- 分隔线与描边：浅色主题用半透明黑 -->
     <color name="scrim">#CC000000</color>
-    <color name="divider">#1FFFFFFF</color>
-    <color name="border">#14FFFFFF</color>
-    <color name="border_strong">#59FFFFFF</color>
+    <color name="divider">#1A000000</color>
+    <color name="border">#1A000000</color>
+    <color name="border_strong">#4D000000</color>
 </resources>
