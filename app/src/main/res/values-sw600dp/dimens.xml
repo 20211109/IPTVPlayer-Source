@@ -40,4 +40,9 @@
     <dimen name="top_button_height">42dp</dimen>
     <dimen name="top_button_padding">20dp</dimen>
     <dimen name="top_button_gap">10dp</dimen>
+
+    <dimen name="tab_width">84dp</dimen>
+    <dimen name="tab_height">42dp</dimen>
+    <dimen name="tab_gap">8dp</dimen>
+    <dimen name="tabs_margin_top">4dp</dimen>
 </resources>

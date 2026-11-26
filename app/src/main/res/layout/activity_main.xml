@@ -24,16 +24,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
+            android:gravity="center_vertical|start"
+            android:layout_marginTop="@dimen/tabs_margin_top"
             android:layout_marginBottom="@dimen/header_gap">
 
+            <!-- 当前页标签：与右侧三个按钮同一套尺寸，普通 TextView 保证不可点 -->
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minHeight="40dp"
+                android:layout_width="@dimen/tab_width"
+                android:layout_height="@dimen/tab_height"
                 android:gravity="center"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
                 android:background="@drawable/bg_tab_selected"
                 android:text="@string/channel_list_title"
                 android:textSize="@dimen/top_button_text"
@@ -45,36 +44,42 @@
             <Button
                 android:id="@+id/btnConfig"
                 style="@style/TabButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_width="@dimen/tab_width"
+                android:layout_height="@dimen/tab_height"
+                android:layout_marginStart="@dimen/tab_gap"
                 android:minWidth="0dp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
                 android:text="@string/btn_config"
                 android:textSize="@dimen/top_button_text" />
 
             <Button
                 android:id="@+id/btnAbout"
                 style="@style/TabButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_width="@dimen/tab_width"
+                android:layout_height="@dimen/tab_height"
+                android:layout_marginStart="@dimen/tab_gap"
                 android:minWidth="0dp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
                 android:text="@string/about_entry"
                 android:textSize="@dimen/top_button_text" />
 
             <Button
                 android:id="@+id/btnSettings"
                 style="@style/TabButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_width="@dimen/tab_width"
+                android:layout_height="@dimen/tab_height"
+                android:layout_marginStart="@dimen/tab_gap"
                 android:minWidth="0dp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
                 android:text="@string/settings"
                 android:textSize="@dimen/top_button_text" />
         </LinearLayout>
@@ -198,6 +203,13 @@
                 </LinearLayout>
             </LinearLayout>
         </FrameLayout>
+
+        <!-- 焦点频道与频道列表之间的分隔线，让两个区块层次更清楚 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:layout_marginBottom="4dp" />
 
         <!-- 分区标题 + 次级入口 -->
         <LinearLayout

@@ -44,4 +44,10 @@
     <dimen name="top_button_height">40dp</dimen>
     <dimen name="top_button_padding">8dp</dimen>
     <dimen name="top_button_gap">6dp</dimen>
+
+    <!-- 顶部四个栏目胶囊：等宽等高、靠左、略下移。手机四连排 4*72+3*6=306dp < 324dp 可用宽 -->
+    <dimen name="tab_width">72dp</dimen>
+    <dimen name="tab_height">40dp</dimen>
+    <dimen name="tab_gap">6dp</dimen>
+    <dimen name="tabs_margin_top">6dp</dimen>
 </resources>

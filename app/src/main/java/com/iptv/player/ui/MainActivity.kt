@@ -672,10 +672,14 @@ class MainActivity : AppCompatActivity() {
             val btn = Button(this).apply {
                 text = label
                 isAllCaps = false
+                // 收紧宽度：默认 Button 有 minWidth 和较大内边距，四连排会挤出屏幕。
+                // 归零后靠下面的左右内边距控制，保证手机上「全部/央视/卫视/其他」四个完整显示。
+                minWidth = 0
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     resources.getDimensionPixelSize(R.dimen.chip_height)
-                ).apply { setMargins(0, 0, 12, 0) }
+                ).apply { setMargins(0, 0, dp(8), 0) }
+                setPadding(dp(14), 0, dp(14), 0)
                 setOnClickListener { applyFilter(g) }
             }
             btn.setBackgroundResource(R.drawable.bg_chip)
