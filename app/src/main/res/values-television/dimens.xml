@@ -32,7 +32,7 @@
     <dimen name="brand_name_text">24sp</dimen>
     <dimen name="top_button_text">17sp</dimen>
 
-    <dimen name="header_gap">8dp</dimen>
+    <dimen name="header_gap">4dp</dimen>
     <dimen name="hero_gap">10dp</dimen>
     <dimen name="section_gap">8dp</dimen>
     <dimen name="chips_gap">8dp</dimen>
@@ -50,5 +50,5 @@
     <dimen name="tab_width">100dp</dimen>
     <dimen name="tab_height">44dp</dimen>
     <dimen name="tab_gap">10dp</dimen>
-    <dimen name="tabs_margin_top">2dp</dimen>
+    <dimen name="tabs_margin_top">8dp</dimen>
 </resources>

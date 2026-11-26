@@ -28,7 +28,7 @@
 
     <!-- 纵向节奏：抽成 dimen 后，各屏幕尺寸可独立压缩，
          保证「频道网格至少露出三行」而不用改布局结构 -->
-    <dimen name="header_gap">18dp</dimen>
+    <dimen name="header_gap">4dp</dimen>
     <dimen name="hero_gap">16dp</dimen>
     <dimen name="section_gap">12dp</dimen>
     <dimen name="chips_gap">12dp</dimen>
@@ -45,9 +45,11 @@
     <dimen name="top_button_padding">8dp</dimen>
     <dimen name="top_button_gap">6dp</dimen>
 
-    <!-- 顶部四个栏目胶囊：等宽等高、靠左、略下移。手机四连排 4*72+3*6=306dp < 324dp 可用宽 -->
+    <!-- 顶部四个栏目胶囊：等宽等高、靠左、下移后紧挨焦点卡上方。
+         手机四连排 4*72+3*6=306dp < 324dp 可用宽。
+         tabs_margin_top 与 header_gap 此消彼长，焦点卡位置保持不变。 -->
     <dimen name="tab_width">72dp</dimen>
     <dimen name="tab_height">40dp</dimen>
     <dimen name="tab_gap">6dp</dimen>
-    <dimen name="tabs_margin_top">6dp</dimen>
+    <dimen name="tabs_margin_top">20dp</dimen>
 </resources>

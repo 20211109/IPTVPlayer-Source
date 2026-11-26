@@ -670,20 +670,25 @@ class MainActivity : AppCompatActivity() {
         groups.forEach { g ->
             val label = if (g == "ALL") getString(R.string.group_all) else g
             val btn = Button(this).apply {
+                // 顺序很关键：setBackgroundResource 会把 padding 重置成 background 的
+                // 内边距（Button 默认是 Material 的大内边距）。必须「先背景、后 padding」，
+                // 反了会让下面设的 10dp 被冲掉，标签被撑宽，手机上四个只能显示三个半。
+                setBackgroundResource(R.drawable.bg_chip)
                 text = label
                 isAllCaps = false
-                // 收紧宽度：默认 Button 有 minWidth 和较大内边距，四连排会挤出屏幕。
-                // 归零后靠下面的左右内边距控制，保证手机上「全部/央视/卫视/其他」四个完整显示。
+                // 归零 Button 自带的最小宽高，让标签真正按「文字 + 内边距」测量
                 minWidth = 0
+                minHeight = 0
+                textSize = resources.getDimension(R.dimen.chip_text) /
+                        resources.displayMetrics.scaledDensity
                 val density = resources.displayMetrics.density
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     resources.getDimensionPixelSize(R.dimen.chip_height)
-                ).apply { setMargins(0, 0, (8 * density + 0.5f).toInt(), 0) }
-                setPadding((14 * density + 0.5f).toInt(), 0, (14 * density + 0.5f).toInt(), 0)
+                ).apply { setMargins(0, 0, (6 * density + 0.5f).toInt(), 0) }
+                setPadding((10 * density + 0.5f).toInt(), 0, (10 * density + 0.5f).toInt(), 0)
                 setOnClickListener { applyFilter(g) }
             }
-            btn.setBackgroundResource(R.drawable.bg_chip)
             btn.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
             if (g == currentGroup) updateChipSelected(btn, true)
             btn.setOnFocusChangeListener { _, hasFocus ->
