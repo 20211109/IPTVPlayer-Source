@@ -836,6 +836,11 @@ class MainActivity : AppCompatActivity() {
         pendingScanCallback = onResult
         try {
             val options = ScanOptions()
+                // 用自带的取景页：解码框收成居中正方形，比默认全屏更容易扫上
+                .setCaptureActivity(QrScanActivity::class.java)
+                // 只解码二维码。混合码制时解码器每帧要多试十几种格式，
+                // 直接指定 QR 能明显缩短出结果的时间
+                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                 .setPrompt(getString(R.string.source_scan_hint))
                 .setBeepEnabled(false)
                 .setOrientationLocked(false)

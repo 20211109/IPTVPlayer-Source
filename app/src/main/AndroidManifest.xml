@@ -65,6 +65,19 @@
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:exported="false" />
 
+        <!--
+            「扫二维码」实际使用的取景页：继承 CaptureActivity，把解码框收成居中的正方形。
+            主题必须用系统非 AppCompat 主题（CaptureActivity 继承 android.app.Activity），
+            否则会拿到应用主题的标题栏/背景，取景画面被压掉一块。
+        -->
+        <activity
+            android:name=".ui.QrScanActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:stateNotNeeded="true"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

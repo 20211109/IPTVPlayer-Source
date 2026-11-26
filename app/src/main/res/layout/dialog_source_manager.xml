@@ -29,28 +29,27 @@
             android:lineSpacingExtra="2dp"
             android:textColor="@color/text_secondary" />
 
+        <!--
+            源列表：高度随内容自然展开，交给外层 ScrollView 统一滚动。
+            之前这里写死 210dp（约三行）又套了一层 ScrollView，
+            电视遥控器把焦点移出第三行时会直接跳到下方按钮，内层永远不滚，
+            于是「加到第四条就看不见了」。列表跟着整页滚，条数再多也能看全。
+        -->
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="210dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="16dp">
 
-            <ScrollView
+            <LinearLayout
+                android:id="@+id/sourceContainer"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scrollbars="vertical"
-                android:fillViewport="true">
-
-                <LinearLayout
-                    android:id="@+id/sourceContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-            </ScrollView>
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
             <TextView
                 android:id="@+id/tvSourceEmpty"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="120dp"
                 android:gravity="center"
                 android:text="@string/source_manager_empty"
                 android:textSize="13sp"
