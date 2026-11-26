@@ -7,8 +7,8 @@
     <string name="btn_config">直播源</string>
     <string name="btn_speedtest">一键测速</string>
     <string name="empty_hint">还没有直播源\n点击「直播频道」右侧的「直播源」扫码或手动添加</string>
-    <string name="pairing_title">扫码添加直播源</string>
-    <string name="pairing_hint">用手机扫码下方二维码，在网页中粘贴 M3U 地址；也可直接手动输入。</string>
+    <string name="pairing_title">用手机/电脑填写</string>
+    <string name="pairing_hint">用手机或电脑扫描下方二维码，在打开的网页里粘贴 M3U 地址并提交，本机会自动收到。</string>
     <string name="manual_input">手动输入</string>
     <string name="hint_m3u">粘贴 M3U 订阅地址或播放列表文本</string>
     <string name="confirm">确定</string>
@@ -37,9 +37,18 @@
     <!-- 多直播源管理 -->
     <string name="source_manager_title">直播源管理</string>
     <string name="source_manager_hint">可同时启用多份直播源；同名频道的线路会自动合并到同一个频道，方便在播放时切换。</string>
-    <string name="source_manager_empty">还没有直播源\n点下方「扫码添加」或「手动添加」</string>
-    <string name="source_add_scan">扫码添加</string>
-    <string name="source_add_manual">手动添加</string>
+    <string name="source_manager_empty">还没有直播源\n点下方「扫二维码」「用手机填」或「手动输入」</string>
+    <!-- 源管理页：添加直播源区块（与下方 EPG 接口是两件不同的事，文案上明确区分） -->
+    <string name="source_add_section">添加直播源</string>
+    <string name="source_add_section_hint">「扫二维码」用本机相机直接扫；「用手机填」在本机显示二维码，用手机或电脑扫码后在网页输入（电视上推荐这种）；「手动输入」直接打字。</string>
+    <string name="source_add_qr">扫二维码</string>
+    <string name="source_add_lan">用手机填</string>
+    <string name="source_add_manual">手动输入</string>
+    <string name="source_scan_title">扫二维码添加直播源</string>
+    <string name="source_scan_hint">把镜头对准包含直播源地址的二维码</string>
+    <string name="source_scan_invalid">这个二维码里不是直播源地址（需以 http:// 或 https:// 开头）</string>
+    <string name="source_scan_no_camera">此设备没有可用相机，请用「用手机填」或「手动输入」</string>
+    <string name="source_scan_fail">没能识别二维码，请重试</string>
     <string name="source_done">完成</string>
     <string name="source_enable">启用该直播源</string>
     <string name="source_edit">编辑</string>
@@ -71,7 +80,7 @@
     <string name="epg_api_saved">节目单接口已保存，下次进入频道生效</string>
     <string name="epg_api_reset_done">已恢复默认节目单接口</string>
     <string name="epg_api_invalid">请输入以 http:// 或 https:// 开头的地址</string>
-    <string name="epg_api_scan">扫码添加</string>
+    <string name="epg_api_scan">手机扫码填 EPG</string>
     <string name="epg_api_scan_title">扫码设置节目单接口</string>
     <string name="epg_api_scan_hint">手机扫码后填写 EPG 接口地址（JSON 用 {key} 代表频道名），提交后电视端自动保存。</string>
 

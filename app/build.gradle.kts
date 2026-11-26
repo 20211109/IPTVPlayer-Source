@@ -27,8 +27,8 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 70
-        versionName = "1.70"
+        versionCode = 71
+        versionName = "1.71"
 
         ndk {
             // 只打真机 ABI：x86/x86_64 仅模拟器用，armeabi(ARMv5) 早已淘汰。
@@ -116,8 +116,10 @@ dependencies {
     // 图片加载（台标 / 二维码）
     implementation("io.coil-kt:coil:2.6.0")
 
-    // 二维码生成
+    // 二维码生成 + 相机扫码
     implementation("com.google.zxing:core:3.5.3")
+    // 手机/平板用相机扫二维码添加直播源；电视上没有相机，按钮会自动隐藏
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     // Java 8+ API 脱糖（老系统兼容）
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")

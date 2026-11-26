@@ -30,6 +30,8 @@ import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.iptv.player.R
 import com.iptv.player.config.PlaylistLoader
 import com.iptv.player.config.HttpCompat
@@ -94,6 +96,20 @@ class MainActivity : AppCompatActivity() {
     private var pickerLongPressFired = false
     /** 更新下载任务：进度框点「取消」时中断 */
     private var updateJob: kotlinx.coroutines.Job? = null
+
+    /** 扫码添加直播源：等待相机返回的临时回调（同一时刻只允许一次） */
+    private var pendingScanCallback: ((String) -> Unit)? = null
+    /**
+     * 相机扫码。源管理对话框是 Dialog，拿不到 registerForActivityResult 所需的
+     * 生命周期宿链接，所以统一由 Activity 发起，结果再回传给发起方。
+     */
+    private val scanQrLauncher = registerForActivityResult(ScanContract()) { result ->
+        val cb = pendingScanCallback
+        pendingScanCallback = null
+        val content = result?.contents
+        // 用户按返回退出扫码时不提示：那是主动取消，不是错误
+        if (!content.isNullOrBlank()) cb?.invoke(content)
+    }
     /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
     private lateinit var liveSwipe: GestureDetector
     /**
@@ -801,11 +817,33 @@ class MainActivity : AppCompatActivity() {
             repo,
             onAdd = { name, content, isUrl -> addPlaylistSource(name, content, isUrl) },
             onChanged = { rebuildChannelsFromSources() },
-            onEpgChanged = { epgManager.clearCache() }
+            onEpgChanged = { epgManager.clearCache() },
+            // 手机/平板上用相机直接扫二维码；电视没有相机，对话框会自动隐藏该按钮
+            onRequestScan = { onResult -> requestQrScan(onResult) }
         )
         dialog.setOnDismissListener { sourceDialog = null }
         sourceDialog = dialog
         dialog.show()
+    }
+
+    /**
+     * 发起相机扫码添加直播源。
+     *
+     * 相机被系统禁用、设备无相机、或预览页启动失败时，给出明确提示而不是静默失败 ——
+     * 用户点了按钮却什么都没发生，是最难排查的一种「没反应」。
+     */
+    private fun requestQrScan(onResult: (String) -> Unit) {
+        pendingScanCallback = onResult
+        try {
+            val options = ScanOptions()
+                .setPrompt(getString(R.string.source_scan_hint))
+                .setBeepEnabled(false)
+                .setOrientationLocked(false)
+            scanQrLauncher.launch(options)
+        } catch (t: Throwable) {
+            pendingScanCallback = null
+            toast(getString(R.string.source_scan_no_camera))
+        }
     }
 
     /** 关于 / 版本信息 / 检查更新 / 开发者二维码 */

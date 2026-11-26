@@ -10,10 +10,14 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- 扫码添加直播源：仅手机/平板使用，电视上没有相机必须仍然能装 -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- Android TV 设备声明；同时兼容普通平板/手机 -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <!--
         targetSdk 30+ 的包可见性限制：不声明 <queries> 时，代码里查不到、也无法
@@ -51,6 +55,15 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            相机扫码页（zxing-android-embedded 提供，仅手机/平板使用）。
+            显式声明 exported=false：它只由本应用的显式 Intent 拉起，
+            没必要让外部应用调起；同时避免 targetSdk 31+ 的导出要求告警。
+        -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

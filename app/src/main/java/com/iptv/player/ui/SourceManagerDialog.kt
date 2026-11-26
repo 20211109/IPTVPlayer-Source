@@ -2,6 +2,7 @@ package com.iptv.player.ui
 
 import android.app.Dialog
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -29,6 +30,9 @@ import kotlinx.coroutines.withContext
 /**
  * 直播源管理：多份 M3U 可同时启用，同名频道自动合并线路。
  * 勾选启用 / 编辑 / 刷新 / 删除即时生效；新增交由外部异步下载后回调 refresh。
+ *
+ * 页面分三块，互不干扰：直播源列表 → 添加直播源 → 节目单接口（EPG）。
+ * 「添加直播源」的三种方式按设备能力区分：本机相机扫 / 另一台设备扫码填 / 手动输入。
  */
 class SourceManagerDialog(
     context: Context,
@@ -36,7 +40,14 @@ class SourceManagerDialog(
     private val repo: SourceRepository,
     private val onAdd: (name: String, content: String, isUrl: Boolean) -> Unit,
     private val onChanged: () -> Unit,
-    private val onEpgChanged: () -> Unit = {}
+    private val onEpgChanged: () -> Unit = {},
+    /**
+     * 请求用本机相机扫二维码，扫到内容后回调。
+     *
+     * Dialog 自己拿不到 registerForActivityResult 的生命周期，必须由宿主 Activity 发起，
+     * 所以这里只负责「发出请求」和「处理结果」，相机与权限全部交给宿主。
+     */
+    private val onRequestScan: ((String) -> Unit) -> Unit = {}
 ) : Dialog(context) {
 
     private lateinit var container: LinearLayout
@@ -65,7 +76,8 @@ class SourceManagerDialog(
         findViewById<Button>(R.id.btnEpgSave).setOnClickListener {
             saveEpgApi(etEpgApi.text.toString())
         }
-        // 扫码添加：与「扫码添加直播源」复用同一套局域网页面，手机填写 EPG 地址即可
+        // EPG 的「手机扫码填」：显示二维码，手机打开网页填 EPG 地址。
+        // 与上方「添加直播源」完全无关，两者只是都借用了同一个局域网页面。
         findViewById<Button>(R.id.btnEpgScan).setOnClickListener {
             PairingDialog(
                 context,
@@ -83,6 +95,15 @@ class SourceManagerDialog(
         }
 
         findViewById<Button>(R.id.btnDone).setOnClickListener { dismiss() }
+        // 「扫二维码」：用本机相机直接扫。电视没有相机，按钮隐藏，
+        // 避免用户点下去只得到一句「没有可用相机」。
+        val btnScanQr = findViewById<Button>(R.id.btnScanQr)
+        if (hasCamera()) {
+            btnScanQr.setOnClickListener { onRequestScan { content -> handleScanned(content) } }
+        } else {
+            btnScanQr.visibility = View.GONE
+        }
+        // 「用手机填」：本机显示二维码，另一台设备扫码后在网页里输入
         findViewById<Button>(R.id.btnScanAdd).setOnClickListener {
             PairingDialog(
                 context,
@@ -291,12 +312,44 @@ class SourceManagerDialog(
         dialog.show()
     }
 
-    /** 手动添加：名称 + 地址（优先）/ M3U 文本 */
-    private fun showAddDialog() {
+    /** 本机是否有可用相机：决定「扫二维码」是否显示（电视上隐藏） */
+    private fun hasCamera(): Boolean =
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+
+    /**
+     * 扫码结果处理：只认 http/https 地址，且**不直接入库** ——
+     * 先填进「添加直播源」对话框让用户确认一次。扫错码最多是点一下取消，
+     * 不会把奇怪内容写进源列表。
+     */
+    private fun handleScanned(content: String) {
+        if (!isShowing) return
+        val text = content.trim()
+        if (text.isBlank()) {
+            Toast.makeText(context, R.string.source_scan_fail, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!text.startsWith("http://", true) && !text.startsWith("https://", true)) {
+            Toast.makeText(context, R.string.source_scan_invalid, Toast.LENGTH_LONG).show()
+            return
+        }
+        showAddDialog(prefillUrl = text)
+    }
+
+    /**
+     * 手动添加：名称 + 地址（优先）/ M3U 文本。
+     *
+     * @param prefillUrl 扫码得到的地址，预填到地址框并把焦点放在名称上，用户只需确认
+     */
+    private fun showAddDialog(prefillUrl: String? = null) {
         val view = LayoutInflater.from(context).inflate(R.layout.dialog_add_source, null)
         val etName = view.findViewById<EditText>(R.id.etSourceName)
         val etUrl = view.findViewById<EditText>(R.id.etSourceUrl)
         val etText = view.findViewById<EditText>(R.id.etSourceText)
+        if (!prefillUrl.isNullOrBlank()) {
+            etUrl.setText(prefillUrl)
+            etUrl.setSelection(prefillUrl.length)
+            etName.requestFocus()
+        }
         val dialog = Dialog(context).apply {
             requestWindowFeature(Window.FEATURE_NO_TITLE)
             setContentView(view)

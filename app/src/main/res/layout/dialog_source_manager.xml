@@ -11,6 +11,7 @@
         android:orientation="vertical"
         android:padding="22dp">
 
+        <!-- ========== ① 直播源列表 ========== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -60,10 +61,83 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="16dp"
             android:background="@color/divider" />
 
-        <!-- 节目单接口：用户可填自有 EPG 服务 -->
+        <!-- ========== ② 添加直播源（紧贴列表，与下方 EPG 明确分开） ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/source_add_section"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="@string/source_add_section_hint"
+            android:textSize="11sp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/text_secondary" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnScanQr"
+                style="@style/GhostButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minWidth="0dp"
+                android:minHeight="40dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/source_add_qr"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnScanAdd"
+                style="@style/GhostButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:minHeight="40dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/source_add_lan"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnManualAdd"
+                style="@style/GhostButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:minWidth="0dp"
+                android:minHeight="40dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/source_add_manual"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:background="@color/divider" />
+
+        <!-- ========== ③ 节目单接口（EPG），与直播源添加无关 ========== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -147,55 +221,17 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="16dp"
             android:background="@color/divider" />
 
-        <LinearLayout
+        <!-- ========== ④ 完成 ========== -->
+        <Button
+            android:id="@+id/btnDone"
+            style="@style/BrandButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnScanAdd"
-                style="@style/GhostButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minWidth="0dp"
-                android:minHeight="40dp"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:text="@string/source_add_scan"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btnManualAdd"
-                style="@style/GhostButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:minWidth="0dp"
-                android:minHeight="40dp"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:text="@string/source_add_manual"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btnDone"
-                style="@style/BrandButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:minWidth="0dp"
-                android:minHeight="40dp"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:text="@string/source_done"
-                android:textSize="12sp" />
-        </LinearLayout>
+            android:text="@string/source_done"
+            android:textSize="14sp" />
     </LinearLayout>
 </ScrollView>
