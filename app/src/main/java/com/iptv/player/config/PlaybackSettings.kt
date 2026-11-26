@@ -36,6 +36,8 @@ class PlaybackSettings(context: Context) {
         const val KEY_AUTO_CROP = "auto_crop_v1"
         // 去黑边档位：决定「多大比例差才动手」，动手时一律整幅裁切铺满
         const val KEY_AUTO_CROP_STRENGTH = "auto_crop_strength_v1"
+        // 订阅源定时刷新间隔（分钟）：0=关闭，10/20/30/60。只刷已启用的源，失败保留本地缓存。
+        const val KEY_SOURCE_REFRESH_MIN = "source_refresh_min_v1"
 
         // 画面缩放 / 比例
         const val KEY_ZOOM_MODE = "zoom_mode"                  // fit / stretch / crop / scale
@@ -72,6 +74,8 @@ class PlaybackSettings(context: Context) {
         const val DEF_ZOOM_SCALE = 100
         const val DEF_DECODER_PRIORITY = "auto"
         const val DEF_RENDER_MODE = "surface"
+        /** 定时刷新默认关闭：新功能不擅自定时走网络流量 */
+        const val DEF_SOURCE_REFRESH_MIN = 0
     }
 
     var stallWindowS: Int
@@ -195,6 +199,20 @@ class PlaybackSettings(context: Context) {
         get() = sp.getBoolean(KEY_AUDIO_ENABLED, true)
         set(v) = sp.edit().putBoolean(KEY_AUDIO_ENABLED, v).apply()
 
+    /**
+     * 订阅源定时刷新间隔（分钟）。0=关闭，只允许 10/20/30/60 四档，
+     * 其它值归到关闭，避免旧数据或手改配置导致高频网络请求。
+     */
+    var sourceRefreshMin: Int
+        get() = when (sp.getInt(KEY_SOURCE_REFRESH_MIN, DEF_SOURCE_REFRESH_MIN)) {
+            10, 20, 30, 60 -> sp.getInt(KEY_SOURCE_REFRESH_MIN, DEF_SOURCE_REFRESH_MIN)
+            else -> DEF_SOURCE_REFRESH_MIN
+        }
+        set(v) = sp.edit().putInt(
+            KEY_SOURCE_REFRESH_MIN,
+            if (v in listOf(10, 20, 30, 60)) v else DEF_SOURCE_REFRESH_MIN
+        ).apply()
+
     fun reset() {
         sp.edit()
             .putInt(KEY_STALL_WINDOW, DEF_STALL_WINDOW)
@@ -217,6 +235,7 @@ class PlaybackSettings(context: Context) {
             .putString(KEY_DECODER_PRIORITY, DEF_DECODER_PRIORITY)
             .putString(KEY_RENDER_MODE, DEF_RENDER_MODE)
             .putBoolean(KEY_AUDIO_ENABLED, true)
+            .putInt(KEY_SOURCE_REFRESH_MIN, DEF_SOURCE_REFRESH_MIN)
             .apply()
     }
 }

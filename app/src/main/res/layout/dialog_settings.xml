@@ -243,6 +243,41 @@
             android:textSize="11sp"
             android:textColor="@color/text_secondary" />
 
+        <!-- 订阅源定时刷新：只刷已启用的源，失败保留缓存，次数仅本次运行累计 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="订阅源定时刷新"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/primary" />
+
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="刷新间隔" />
+            <Spinner
+                android:id="@+id/spSourceRefresh"
+                android:layout_width="170dp"
+                android:layout_height="wrap_content"
+                android:entries="@array/source_refresh_labels" />
+        </LinearLayout>
+
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="本次已刷新次数" />
+            <TextView
+                android:id="@+id/vRefreshCount"
+                style="@style/SettingValue"
+                android:text="0 次" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="按所选间隔自动下载「已启用」的订阅源；下载失败或解析不到频道时继续使用本地缓存，不影响观看。次数仅本次开启应用期间累计，关闭应用后清零。保存间隔后立即生效。"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

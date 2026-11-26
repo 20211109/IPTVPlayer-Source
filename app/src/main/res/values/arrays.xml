@@ -43,4 +43,15 @@
         <item>保留原比例（宁可留黑边）</item>
         <item>一律拉伸铺满（画面变宽）</item>
     </string-array>
+
+    <!-- 订阅源定时刷新档位：0/1/2/3/4 → 关闭/10/20/30/60 分钟。
+         代码用 Spinner 位置乘换算得到分钟数，故不需要 values 数组。
+         只刷新已勾选启用的源；下载失败或解析不到频道时保留本地缓存。默认关闭。 -->
+    <string-array name="source_refresh_labels">
+        <item>关闭（不自动刷新）</item>
+        <item>每 10 分钟</item>
+        <item>每 20 分钟</item>
+        <item>每 30 分钟</item>
+        <item>每 60 分钟</item>
+    </string-array>
 </resources>

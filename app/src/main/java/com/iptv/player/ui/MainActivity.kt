@@ -84,6 +84,14 @@ class MainActivity : AppCompatActivity() {
     private var lastHeroScrollMs = 0L
     private var heroTouchX = 0f
     private var heroTouchY = 0f
+
+    // ===== 订阅源定时刷新 =====
+    /** 循环定时任务本身；间隔档位变化时先撤销再重新排期 */
+    private var sourceRefreshRunnable: Runnable? = null
+    /** 本次开启应用以来成功完成的刷新轮数（仅内存，进程退出即归零，不落盘） */
+    private var sourceRefreshCount = 0
+    /** 刷新任务序号：档位变化/退出时递增，让进行中的旧任务结果作废 */
+    private var sourceRefreshSeq = 0
     /** 直播页上/下滑或遥控上/下键换台的防抖时间戳 */
     private var lastLiveSwitchMs = 0L
     /** 直播页长按确认键呼出的频道选择浮层 */
@@ -350,6 +358,9 @@ class MainActivity : AppCompatActivity() {
 
         // 启动时静默检查更新（无新版本或网络不通时无任何打扰）
         checkForUpdate()
+
+        // 订阅源定时刷新：按设置档位排期，默认关闭时什么都不做
+        scheduleSourceRefresh()
     }
 
     /** 焦点卡原始高度：被压缩过之后要能还原（例如旋转屏幕、字体缩放变化后再量一次） */
@@ -657,6 +668,109 @@ class MainActivity : AppCompatActivity() {
         // 当前分组可能因为删除直播源而消失，回落到「全部」
         if (currentGroup != "ALL" && channels.none { it.group == currentGroup }) currentGroup = "ALL"
         applyFilter(currentGroup)
+    }
+
+    /**
+     * 静默应用刷新结果：把最新解析出的线路就地写回内存里的 Channel 对象。
+     *
+     * 关键：保持 Channel 对象引用不变，只替换它的 sources 内容。列表适配器、
+     * filteredChannels 与 PlayerManager 持有的都是同一批对象，于是用户下一次
+     * 换台时 openChannel() 取到的就是最新地址——等于"换台一瞬间直接换掉"。
+     *
+     * 全程不重建列表、不切分组、不刷适配器、不弹提示、不碰播放器，
+     * 正在观看的这一路完全不被打扰，真正做到不知不觉。
+     */
+    private fun applyRefreshedChannelsSilently() {
+        val sources = repo.getPlaylistSources().filter { it.enabled }
+        if (sources.isEmpty()) return
+        val fresh = M3uParser.merge(sources.map { M3uParser.parse(it.raw, it.url) })
+        if (fresh.isEmpty()) return
+
+        // 用户手动设置过的台标要保留，不能被订阅源刷新冲掉
+        val overrides = channels.associateBy { it.normalizedName() }.mapValues { it.value.logoOverride }
+        fresh.forEach { ch ->
+            overrides[ch.normalizedName()]?.let { ov -> if (ov.isNotBlank()) ch.logoOverride = ov }
+        }
+
+        val freshByName = fresh.associateBy { it.normalizedName() }
+        val merged = channels.toMutableList()
+        // 同名频道：就地替换线路（保持对象引用），解析为空的跳过以免误伤正在播放的频道
+        merged.forEach { old ->
+            val new = freshByName[old.normalizedName()] ?: return@forEach
+            if (new.sources.isEmpty()) return@forEach
+            old.sources.clear()
+            old.sources.addAll(new.sources)
+            old.logo = new.logo
+            old.tvgId = new.tvgId
+        }
+        // 订阅源里新增的频道加进内存，下一次 applyFilter 时会自然出现在列表里
+        val oldNames = merged.map { it.normalizedName() }.toSet()
+        fresh.forEach { ch -> if (ch.normalizedName() !in oldNames) merged.add(ch) }
+
+        channels = merged
+        repo.saveChannels(channels)
+    }
+
+    /**
+     * 排期订阅源定时刷新。档位 0=关闭时不排任何任务。
+     * 每次调用都先撤销旧任务并递增序号，避免改档位后旧循环还在跑。
+     */
+    private fun scheduleSourceRefresh() {
+        sourceRefreshRunnable?.let { uiHandler.removeCallbacks(it) }
+        sourceRefreshRunnable = null
+        sourceRefreshSeq++ // 让进行中的旧刷新协程结果作废
+        val minutes = playSettings.sourceRefreshMin
+        if (minutes <= 0) return
+        val periodMs = minutes * 60_000L
+        val runnable = object : Runnable {
+            override fun run() {
+                val seq = sourceRefreshSeq
+                if (seq != sourceRefreshSeq) return
+                performSourceRefresh(seq)
+                // 无论本轮成功失败，按当前档位继续排下一轮
+                val nextMin = playSettings.sourceRefreshMin
+                if (nextMin > 0 && seq == sourceRefreshSeq) {
+                    uiHandler.postDelayed(this, nextMin * 60_000L)
+                }
+            }
+        }
+        sourceRefreshRunnable = runnable
+        uiHandler.postDelayed(runnable, periodMs)
+    }
+
+    /**
+     * 执行一轮订阅源刷新：只下载 URL 类型且已启用的源。
+     * 下载失败或解析不到频道时保留本地缓存（什么都不写），绝不把源清空。
+     * 成功后静默就地更新内存里的频道线路，不重建列表、不弹提示、不打断观看；
+     * 新地址在下一次换台那一刻生效。
+     */
+    private fun performSourceRefresh(seq: Int) {
+        val targets = repo.getPlaylistSources().filter { it.enabled && it.url.startsWith("http", true) }
+        if (targets.isEmpty()) return
+        lifecycleScope.launch {
+            var anyUpdated = false
+            withContext(Dispatchers.IO) {
+                for (s in targets) {
+                    if (seq != sourceRefreshSeq) return@withContext
+                    val result = PlaylistLoader.load(s.url, true)
+                    if (result.isFailure) continue
+                    val raw = result.getOrNull() ?: continue
+                    // 解析不到频道视为失败，保留旧 raw，不用空内容覆盖缓存
+                    if (M3uParser.parse(raw, s.url).isEmpty()) continue
+                    repo.updatePlaylistSource(s.id, raw = raw)
+                    anyUpdated = true
+                }
+            }
+            if (seq != sourceRefreshSeq) return@launch
+            // 一轮结束计数 +1（哪怕本轮全部失败也算执行过一次）
+            sourceRefreshCount++
+            if (anyUpdated) {
+                // 静默就地更新：只把最新线路写回内存里的频道对象，不重建列表、不弹提示、
+                // 不打断当前播放。正在看的这一路继续走已缓冲的流；下一次换台那一刻
+                // openChannel() 从同一批对象里取到的就是最新地址，等于"换台瞬间直接换掉"。
+                applyRefreshedChannelsSilently()
+            }
+        }
     }
 
     /** 根据频道分组生成标签栏 */
@@ -1850,6 +1964,7 @@ class MainActivity : AppCompatActivity() {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
         showSystemUi()
+        // 刷新在后台静默就地更新了频道数据，回到列表正常刷新显示即可，无需重建
         applyFilter(currentGroup)
         // 手机从横屏播放回到竖屏列表，可视高度变了，重新兜一次三行
         ensureThreeRowsVisible()
@@ -1916,9 +2031,18 @@ class MainActivity : AppCompatActivity() {
         val cbAudioCompat = view.findViewById<android.widget.CheckBox>(R.id.cbAudioCompat)
         val cbAutoCrop = view.findViewById<android.widget.CheckBox>(R.id.cbAutoCrop)
         val spCropStrength = view.findViewById<android.widget.Spinner>(R.id.spCropStrength)
+        val spSourceRefresh = view.findViewById<android.widget.Spinner>(R.id.spSourceRefresh)
+        val vRefreshCount = view.findViewById<TextView>(R.id.vRefreshCount)
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
+
+        // 档位位置 0..4 → 0/10/20/30/60 分钟
+        val refreshMinutesOptions = listOf(0, 10, 20, 30, 60)
+        spSourceRefresh.setSelection(
+            refreshMinutesOptions.indexOf(playSettings.sourceRefreshMin).coerceAtLeast(0)
+        )
+        vRefreshCount.text = "${sourceRefreshCount} 次"
 
         // 数值项：选中后按确定弹数字键盘，确认才写入 tag/text
         bindNumberField(vWindow, "卡顿统计窗口", playSettings.stallWindowS, 5, 60, " 秒")
@@ -1959,6 +2083,7 @@ class MainActivity : AppCompatActivity() {
                 val oldAudio = playSettings.audioEnabled
                 val oldAutoCrop = playSettings.autoCrop
                 val oldCropStrength = playSettings.autoCropStrength
+                val oldRefreshMin = playSettings.sourceRefreshMin
                 // 这一组只影响「播放引擎怎么建」与「卡顿检测策略」，
                 // 全部在 PlayerManager / StallDetector 构造时读取，改完必须重建才生效
                 val oldEngine = listOf(
@@ -1988,6 +2113,14 @@ class MainActivity : AppCompatActivity() {
                 playSettings.audioCompat = cbAudioCompat.isChecked
                 playSettings.autoCrop = cbAutoCrop.isChecked
                 playSettings.autoCropStrength = spCropStrength.selectedItemPosition.coerceIn(0, 3)
+                // 刷新档位变化（含开启/关闭）后立即重排定时任务
+                val newRefreshMin = refreshMinutesOptions[
+                    spSourceRefresh.selectedItemPosition.coerceIn(0, refreshMinutesOptions.size - 1)
+                ]
+                if (newRefreshMin != oldRefreshMin) {
+                    playSettings.sourceRefreshMin = newRefreshMin
+                    scheduleSourceRefresh()
+                }
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls
                 statsBar.visibility = if (playSettings.showStats) View.VISIBLE else View.GONE
@@ -2044,6 +2177,8 @@ class MainActivity : AppCompatActivity() {
             }
             .setNeutralButton("恢复默认") { _, _ ->
                 playSettings.reset()
+                // 档位被清零：立即撤销已排期的定时刷新，不等当前这一轮到点才停
+                scheduleSourceRefresh()
                 toast("已恢复默认参数")
                 // 重开一次让界面上的数值同步成默认值（旧实现只弹个 toast，界面还是旧数字）
                 uiHandler.post { showSettingsDialog() }
