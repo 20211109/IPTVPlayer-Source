@@ -1,5 +1,7 @@
 package com.iptv.player.ui
 
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
@@ -13,6 +15,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import android.widget.Button
 import android.widget.FrameLayout
@@ -30,8 +33,6 @@ import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.iptv.player.R
 import com.iptv.player.config.PlaylistLoader
 import com.iptv.player.config.HttpCompat
@@ -101,15 +102,18 @@ class MainActivity : AppCompatActivity() {
     private var pendingScanCallback: ((String) -> Unit)? = null
     /**
      * 相机扫码。源管理对话框是 Dialog，拿不到 registerForActivityResult 所需的
-     * 生命周期宿链接，所以统一由 Activity 发起，结果再回传给发起方。
+     * 生命周期宿主链接，所以统一由 Activity 发起，结果再回传给发起方。
      */
-    private val scanQrLauncher = registerForActivityResult(ScanContract()) { result ->
-        val cb = pendingScanCallback
-        pendingScanCallback = null
-        val content = result?.contents
-        // 用户按返回退出扫码时不提示：那是主动取消，不是错误
-        if (!content.isNullOrBlank()) cb?.invoke(content)
-    }
+    private val scanQrLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val cb = pendingScanCallback
+            pendingScanCallback = null
+            // 用户按返回/点取消退出扫码时不提示：那是主动取消，不是错误
+            if (result.resultCode == Activity.RESULT_OK) {
+                val content = result.data?.getStringExtra(QrScanActivity.EXTRA_RESULT)
+                if (!content.isNullOrBlank()) cb?.invoke(content)
+            }
+        }
     /** 直播页上下划动换台手势（在 dispatchTouchEvent 中统一分发，确保收到完整序列） */
     private lateinit var liveSwipe: GestureDetector
     /**
@@ -835,16 +839,9 @@ class MainActivity : AppCompatActivity() {
     private fun requestQrScan(onResult: (String) -> Unit) {
         pendingScanCallback = onResult
         try {
-            val options = ScanOptions()
-                // 用自带的取景页：解码框收成居中正方形，比默认全屏更容易扫上
-                .setCaptureActivity(QrScanActivity::class.java)
-                // 只解码二维码。混合码制时解码器每帧要多试十几种格式，
-                // 直接指定 QR 能明显缩短出结果的时间
-                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt(getString(R.string.source_scan_hint))
-                .setBeepEnabled(false)
-                .setOrientationLocked(false)
-            scanQrLauncher.launch(options)
+            val intent = Intent(this, QrScanActivity::class.java)
+                .putExtra(QrScanActivity.EXTRA_PROMPT, getString(R.string.source_scan_hint))
+            scanQrLauncher.launch(intent)
         } catch (t: Throwable) {
             pendingScanCallback = null
             toast(getString(R.string.source_scan_no_camera))

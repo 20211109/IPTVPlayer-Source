@@ -27,8 +27,8 @@ android {
         // minSdk 21：覆盖 Android 5.0 起的电视盒子/老电视（Media3、Coil、AndroidX 的最低要求）
         minSdk = 21
         targetSdk = 35
-        versionCode = 72
-        versionName = "1.72"
+        versionCode = 73
+        versionName = "1.73"
 
         ndk {
             // 只打真机 ABI：x86/x86_64 仅模拟器用，armeabi(ARMv5) 早已淘汰。
@@ -116,10 +116,17 @@ dependencies {
     // 图片加载（台标 / 二维码）
     implementation("io.coil-kt:coil:2.6.0")
 
-    // 二维码生成 + 相机扫码
+    // 二维码生成（局域网配对页 / 手机填写页展示的二维码）
     implementation("com.google.zxing:core:3.5.3")
-    // 手机/平板用相机扫二维码添加直播源；电视上没有相机，按钮会自动隐藏
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // 相机扫码：CameraX 取景 + MLKit 识别。
+    // 不用 zxing 自带的 CaptureActivity：它只能对「取景框裁剪出来的那小块」解码，
+    // 框一小就必须把码精确怼进框里，反而更难扫。MLKit 是对整帧识别，
+    // 取景框只当视觉引导，框外一点也能认出来，弱光/反光/斜着拿都明显更稳。
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // Java 8+ API 脱糖（老系统兼容）
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")

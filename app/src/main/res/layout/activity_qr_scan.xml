@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    扫码页：CameraX 预览铺满 + 自绘取景框 + 提示语 + 取消。
+    取景框只是视觉引导（ScanFrameView 不参与识别），识别对整帧画面做，
+    所以码放得偏一点、斜一点都还能扫上。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.iptv.player.ui.ScanFrameView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/tvScanPrompt"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="132dp"
+        android:gravity="center"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:shadowColor="#B3000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="6"
+        android:text="@string/source_scan_hint"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/btnScanCancel"
+        style="@style/GhostButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="48dp"
+        android:minWidth="132dp"
+        android:minHeight="44dp"
+        android:text="@string/scan_cancel"
+        android:textSize="14sp" />
+
+</FrameLayout>

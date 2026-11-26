@@ -57,25 +57,15 @@
         </activity>
 
         <!--
-            相机扫码页（zxing-android-embedded 提供，仅手机/平板使用）。
+            相机扫码页（CameraX 取景 + MLKit 识别，仅手机/平板使用）。
             显式声明 exported=false：它只由本应用的显式 Intent 拉起，
             没必要让外部应用调起；同时避免 targetSdk 31+ 的导出要求告警。
-        -->
-        <activity
-            android:name="com.journeyapps.barcodescanner.CaptureActivity"
-            android:exported="false" />
-
-        <!--
-            「扫二维码」实际使用的取景页：继承 CaptureActivity，把解码框收成居中的正方形。
-            主题必须用系统非 AppCompat 主题（CaptureActivity 继承 android.app.Activity），
-            否则会拿到应用主题的标题栏/背景，取景画面被压掉一块。
+            主题必须支持 AppCompat（它是 AppCompatActivity），直接复用应用主题即可。
         -->
         <activity
             android:name=".ui.QrScanActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
-            android:stateNotNeeded="true"
-            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:theme="@style/Theme.IPTVPlayer"
             android:windowSoftInputMode="stateAlwaysHidden" />
 
         <provider
