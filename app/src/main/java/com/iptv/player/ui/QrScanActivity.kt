@@ -10,16 +10,20 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
 import android.util.AttributeSet
+import android.util.Size
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -31,6 +35,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.iptv.player.R
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 相机扫二维码。
@@ -57,6 +62,17 @@ class QrScanActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var scanner: BarcodeScanner
     private var analysisExecutor: ExecutorService? = null
+    /** 绑定成功后的 Camera，点屏幕变焦要用它的 cameraControl */
+    private var camera: Camera? = null
+    /** 当前变焦档位下标（1x / 2x / 3x） */
+    private var zoomIndex = 0
+    /**
+     * 同一时刻只放一帧进 MLKit。
+     * 单线程 executor 只是保证回调不并发，analyze 里是异步的，
+     * 不卡住就会不断取新帧、同时压好几帧给 MLKit，ImageProxy 池被占满后
+     * CameraX 直接停止出帧（画面定住）。
+     */
+    private val analyzing = AtomicBoolean(false)
 
     /** 已经出结果并正在关闭：防止连续多帧重复回调和重复 finish（跨线程读写，加 Volatile） */
     @Volatile
@@ -84,6 +100,8 @@ class QrScanActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvScanPrompt).text = it
         }
         findViewById<View>(R.id.btnScanCancel).setOnClickListener { finish() }
+        // 点取景区域切换变焦：镜头够不到的时候不用来回挪手机
+        findViewById<View>(R.id.scanFrame).setOnClickListener { cycleZoom() }
 
         scanner = BarcodeScanning.getClient(
             // 只认二维码：模型只跑一种码制，出结果更快
@@ -109,26 +127,79 @@ class QrScanActivity : AppCompatActivity() {
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
-                val analysis = ImageAnalysis.Builder()
-                    // 识别跟不上时丢旧帧，保证画面和处理都不积压
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
                 val executor = Executors.newSingleThreadExecutor()
                 analysisExecutor = executor
-                analysis.setAnalyzer(executor) { proxy -> analyze(proxy) }
 
-                provider.unbindAll()
-                provider.bindToLifecycle(
-                    this,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    analysis
-                )
+                // 先按高分辨率绑，个别机型不支持这个组合时退回默认分辨率，
+                // 避免某些老设备摄像头直接打不开
+                val bound = bind(provider, preview, executor, highResolution = true)
+                    ?: bind(provider, preview, executor, highResolution = false)
+                    ?: throw IllegalStateException("camera bind failed")
+                camera = bound
             } catch (t: Throwable) {
                 Toast.makeText(this, R.string.source_scan_no_camera, Toast.LENGTH_LONG).show()
                 finish()
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /**
+     * 绑定预览 + 分析。
+     *
+     * [highResolution] = true 时把分析帧提到 1280×720。
+     * CameraX 的 ImageAnalysis 默认只给 640×480，稍远一点的二维码在帧里只有
+     * 几十个像素宽，MLKit 根本认不出来 —— 这正是「离得近才能扫上」的原因。
+     * 帧分辨率翻上去，同一个码的像素数变成四倍，正常距离就能识别。
+     */
+    private fun bind(
+        provider: ProcessCameraProvider,
+        preview: Preview,
+        executor: ExecutorService,
+        highResolution: Boolean
+    ): Camera? = try {
+        val builder = ImageAnalysis.Builder()
+            // 识别跟不上时丢旧帧，保证画面和处理都不积压
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+        if (highResolution) {
+            builder.setResolutionSelector(
+                ResolutionSelector.Builder()
+                    .setResolutionStrategy(
+                        ResolutionStrategy(
+                            Size(1280, 720),
+                            ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                        )
+                    )
+                    .build()
+            )
+        }
+        val analysis = builder.build()
+        analysis.setAnalyzer(executor) { proxy -> analyze(proxy) }
+        provider.unbindAll()
+        provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+    } catch (t: Throwable) {
+        null
+    }
+
+    /**
+     * 点屏幕切换变焦：1x → 2x → 3x → 1x。
+     *
+     * 高分辨率帧解决「稍远」，变焦解决「再远一点」。
+     * 上限取设备支持的最大倍率，避免在只支持 2x 的机器上设 3x 被拒。
+     */
+    private fun cycleZoom() {
+        val cam = camera ?: return
+        // 用本地下标轮转，不读 zoomRatio：setZoomRatio 是异步的，
+        // 连点两下时读回来的还是旧值，倍率会跳不上去
+        val max = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
+        val steps = listOf(1f, 2f, 3f).filter { it <= max + 0.01f }.ifEmpty { listOf(1f) }
+        zoomIndex = (zoomIndex + 1) % steps.size
+        val next = steps[zoomIndex]
+        cam.cameraControl.setZoomRatio(next)
+        Toast.makeText(
+            this,
+            getString(R.string.scan_zoom_toast, next.toInt()),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     /**
@@ -138,12 +209,13 @@ class QrScanActivity : AppCompatActivity() {
      * 表现为画面还活着但永远不再识别，是 CameraX 最经典的坑。
      */
     private fun analyze(proxy: ImageProxy) {
-        if (finished) {
+        if (finished || !analyzing.compareAndSet(false, true)) {
             proxy.close()
             return
         }
         val media = proxy.image
         if (media == null) {
+            analyzing.set(false)
             proxy.close()
             return
         }
@@ -158,7 +230,10 @@ class QrScanActivity : AppCompatActivity() {
                     finish()
                 }
             }
-            .addOnCompleteListener { proxy.close() }
+            .addOnCompleteListener {
+                proxy.close()
+                analyzing.set(false)
+            }
     }
 
     override fun onDestroy() {

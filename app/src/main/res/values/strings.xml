@@ -45,11 +45,12 @@
     <string name="source_add_lan">用手机填</string>
     <string name="source_add_manual">手动输入</string>
     <string name="source_scan_title">扫二维码添加直播源</string>
-    <string name="source_scan_hint">把二维码放进取景框，稍等一下会自动识别</string>
+    <string name="source_scan_hint">把二维码放进取景框；扫不到就点一下屏幕放大</string>
     <string name="source_scan_invalid">这个二维码里不是直播源地址（需以 http:// 或 https:// 开头）</string>
     <string name="source_scan_no_camera">此设备没有可用相机，请用「用手机填」或「手动输入」</string>
     <string name="source_scan_fail">没能识别二维码，请重试</string>
     <string name="scan_cancel">取消</string>
+    <string name="scan_zoom_toast">%1$d×</string>
     <string name="source_done">完成</string>
     <string name="source_enable">启用该直播源</string>
     <string name="source_edit">编辑</string>
