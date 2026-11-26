@@ -56,20 +56,6 @@
                 android:textSize="@dimen/top_button_text" />
 
             <Button
-                android:id="@+id/btnAbout"
-                style="@style/TabButton"
-                android:layout_width="@dimen/tab_width"
-                android:layout_height="@dimen/tab_height"
-                android:layout_marginStart="@dimen/tab_gap"
-                android:minWidth="0dp"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:text="@string/about_entry"
-                android:textSize="@dimen/top_button_text" />
-
-            <Button
                 android:id="@+id/btnSettings"
                 style="@style/TabButton"
                 android:layout_width="@dimen/tab_width"
@@ -81,6 +67,20 @@
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
                 android:text="@string/settings"
+                android:textSize="@dimen/top_button_text" />
+
+            <Button
+                android:id="@+id/btnAbout"
+                style="@style/TabButton"
+                android:layout_width="@dimen/tab_width"
+                android:layout_height="@dimen/tab_height"
+                android:layout_marginStart="@dimen/tab_gap"
+                android:minWidth="0dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="@string/about_entry"
                 android:textSize="@dimen/top_button_text" />
         </LinearLayout>
 
@@ -125,30 +125,43 @@
                     android:orientation="vertical"
                     android:gravity="center_vertical">
 
-                    <TextView
-                        android:id="@+id/tvHeroBadge"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/bg_badge_live"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="3dp"
-                        android:paddingBottom="3dp"
-                        android:text="@string/hero_badge"
-                        android:textSize="10sp"
-                        android:textColor="@color/text_secondary" />
-
-                    <TextView
-                        android:id="@+id/tvHeroTitle"
+                    <!-- 频道名 + 「正在直播」标签同一行：标签跟在名称后面。
+                         名称用 weight 占满剩余宽度并省略号截断，标签 wrap_content 固定在右侧，
+                         长频道名也不会把标签挤出屏幕（手机上同理）。 -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/hero_title_gap"
-                        android:text="@string/hero_hint"
-                        android:textSize="@dimen/hero_title"
-                        android:textStyle="bold"
-                        android:textColor="@color/text_primary"
-                        android:maxLines="1"
-                        android:ellipsize="end" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvHeroTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:minWidth="0dp"
+                            android:text="@string/hero_hint"
+                            android:textSize="@dimen/hero_title"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary"
+                            android:maxLines="1"
+                            android:ellipsize="end" />
+
+                        <TextView
+                            android:id="@+id/tvHeroBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/hero_badge_gap"
+                            android:background="@drawable/bg_badge_live"
+                            android:paddingStart="@dimen/hero_badge_pad_h"
+                            android:paddingEnd="@dimen/hero_badge_pad_h"
+                            android:paddingTop="3dp"
+                            android:paddingBottom="3dp"
+                            android:text="@string/hero_badge"
+                            android:textSize="@dimen/hero_badge_text"
+                            android:textColor="@color/text_secondary"
+                            android:maxLines="1" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/tvHeroSub"

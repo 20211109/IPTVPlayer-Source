@@ -95,13 +95,17 @@ class SourceManagerDialog(
         }
 
         findViewById<Button>(R.id.btnDone).setOnClickListener { dismiss() }
-        // 「扫二维码」：用本机相机直接扫。电视没有相机，按钮隐藏，
-        // 避免用户点下去只得到一句「没有可用相机」。
+        // 「扫二维码」：用本机相机直接扫。
+        // 之前电视无相机时直接 GONE，结果「添加直播源」一行只剩两个按钮、看着像少了一个。
+        // 现在按钮始终显示（三个按钮对齐）；有相机就正常扫码，没有则 toast 明确提示，
+        // 绝不点下去毫无反应。电视上真正推荐的是旁边的「用手机填」。
         val btnScanQr = findViewById<Button>(R.id.btnScanQr)
-        if (hasCamera()) {
-            btnScanQr.setOnClickListener { onRequestScan { content -> handleScanned(content) } }
-        } else {
-            btnScanQr.visibility = View.GONE
+        btnScanQr.setOnClickListener {
+            if (hasCamera()) {
+                onRequestScan { content -> handleScanned(content) }
+            } else {
+                Toast.makeText(context, R.string.source_scan_no_camera, Toast.LENGTH_SHORT).show()
+            }
         }
         // 「用手机填」：本机显示二维码，另一台设备扫码后在网页里输入
         findViewById<Button>(R.id.btnScanAdd).setOnClickListener {

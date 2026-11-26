@@ -6,6 +6,10 @@
     <dimen name="hero_height">136dp</dimen>
     <dimen name="hero_title">21sp</dimen>
     <dimen name="hero_sub">12sp</dimen>
+    <!-- 「正在直播」标签：手机窄屏收紧，避免挤占频道名 -->
+    <dimen name="hero_badge_text">9sp</dimen>
+    <dimen name="hero_badge_pad_h">6dp</dimen>
+    <dimen name="hero_badge_gap">6dp</dimen>
     <dimen name="section_title">18sp</dimen>
     <dimen name="card_height">104dp</dimen>
     <dimen name="card_logo_size">44dp</dimen>

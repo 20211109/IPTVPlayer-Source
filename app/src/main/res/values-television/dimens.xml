@@ -13,6 +13,9 @@
     <dimen name="hero_height">112dp</dimen>
     <dimen name="hero_title">23sp</dimen>
     <dimen name="hero_sub">13sp</dimen>
+    <dimen name="hero_badge_text">10sp</dimen>
+    <dimen name="hero_badge_pad_h">9dp</dimen>
+    <dimen name="hero_badge_gap">8dp</dimen>
     <dimen name="section_title">19sp</dimen>
     <dimen name="card_height">82dp</dimen>
     <dimen name="card_logo_size">42dp</dimen>

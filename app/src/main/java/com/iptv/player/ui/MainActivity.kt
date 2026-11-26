@@ -669,16 +669,18 @@ class MainActivity : AppCompatActivity() {
         }
         groups.forEach { g ->
             val label = if (g == "ALL") getString(R.string.group_all) else g
-            val btn = Button(this).apply {
-                // 顺序很关键：setBackgroundResource 会把 padding 重置成 background 的
-                // 内边距（Button 默认是 Material 的大内边距）。必须「先背景、后 padding」，
-                // 反了会让下面设的 10dp 被冲掉，标签被撑宽，手机上四个只能显示三个半。
+            // 用 TextView 而不是 Button：主题是 MaterialComponents，Button(this) 实际是
+            // MaterialButton，自带约 24dp 的 insetLeft/insetRight，minWidth=0 和 setPadding
+            // 都管不到它，标签会被撑到 ~80dp，手机上第四个「其它」被挤出屏幕。
+            // TextView 没有这套 inset，padding 就是真实宽度，标签按「文字 + padding」测量，
+            // 四个 2 字标签约 46dp×4 + 间距，360dp 手机上可完整显示，仍可横向滑动。
+            val chip = TextView(this).apply {
                 setBackgroundResource(R.drawable.bg_chip)
                 text = label
-                isAllCaps = false
-                // 归零 Button 自带的最小宽高，让标签真正按「文字 + 内边距」测量
-                minWidth = 0
-                minHeight = 0
+                gravity = android.view.Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                // TextView.setTextSize 默认按 sp 解释；getDimension 返回 px，除以 scaledDensity 换成 sp
                 textSize = resources.getDimension(R.dimen.chip_text) /
                         resources.displayMetrics.scaledDensity
                 val density = resources.displayMetrics.density
@@ -689,13 +691,13 @@ class MainActivity : AppCompatActivity() {
                 setPadding((10 * density + 0.5f).toInt(), 0, (10 * density + 0.5f).toInt(), 0)
                 setOnClickListener { applyFilter(g) }
             }
-            btn.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-            if (g == currentGroup) updateChipSelected(btn, true)
-            btn.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) btn.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
-                else if (g != currentGroup) btn.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            chip.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            if (g == currentGroup) updateChipSelected(chip, true)
+            chip.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) chip.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+                else if (g != currentGroup) chip.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
             }
-            groupContainer.addView(btn)
+            groupContainer.addView(chip)
         }
         groupKeys = groups
     }
@@ -706,7 +708,7 @@ class MainActivity : AppCompatActivity() {
         filteredChannels = if (group == "ALL") channels else channels.filter { it.group == group }
         // 同步标签选中态
         for (i in 0 until groupContainer.childCount) {
-            val child = groupContainer.getChildAt(i) as Button
+            val child = groupContainer.getChildAt(i) as TextView
             val g = if (i == 0) "ALL" else child.text.toString()
             val isSelected = g == group
             updateChipSelected(child, isSelected)
@@ -728,7 +730,7 @@ class MainActivity : AppCompatActivity() {
         focusedChannel?.let { updateHero(it) }
     }
 
-    private fun updateChipSelected(btn: Button, selected: Boolean) {
+    private fun updateChipSelected(btn: TextView, selected: Boolean) {
         btn.isSelected = selected
     }
 
