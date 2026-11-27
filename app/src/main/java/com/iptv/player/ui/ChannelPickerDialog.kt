@@ -70,8 +70,10 @@ class ChannelPickerDialog(
 
         // 磨砂效果：遮罩不要把画面压死，透一点上来才有「隔着毛玻璃」的观感；
         // Android 12+ 再叠一层系统级背景模糊，就是真正的毛玻璃。
+        // 0.42 → 0.32：面板本身已降到 75%，遮罩再压这么重就白透了，
+        // 两者合起来的透过率要能让用户看出「后面的画面还在动」。
         d.window?.apply {
-            setDimAmount(0.42f)
+            setDimAmount(0.32f)
             applySystemBlur(this)
         }
 

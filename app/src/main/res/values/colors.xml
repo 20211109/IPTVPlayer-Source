@@ -1,19 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        浅色「云端白」方案（Apple 设置页观感）。
-        搭配原则：浅灰底 + 白卡 + 深一档焦点 + 单一蓝色强调，不做多色混搭。
-        文字用深灰 #1C1C1E 而非纯黑，白底上不扎眼。
+        浅色「冷灰通透」方案（Apple 设置页观感）。
+        搭配原则：冷灰底 + 纯白卡 + 淡蓝灰焦点 + 单一蓝色强调，不做多色混搭。
+
+        为什么底色是冷调而不是暖白：页面要「通透」就必须让白卡浮起来，
+        暖白底会把纯白卡衬得发黄，两者只差 2% 的明度却各带色相，看起来像脏了。
+        统一到冷灰后，卡片靠明度差和描边分层，颜色只有一个蓝，整页更干净。
+
+        注意：这里只定义「不透明表面」。叠在播放画面上的浮层（长按频道表、
+        换源表）另有各的深色半透明玻璃，见 bg_picker_glass.xml，不要混用。
     -->
     <color name="black">#FF000000</color>
-    <color name="background">#FFF6F3EC</color>
-    <color name="background_2">#FFFFFDF8</color>
+    <color name="background">#FFF2F4F7</color>
+    <color name="background_2">#FFFFFFFF</color>
 
     <!-- 表面：白卡 + 浅灰焦点 -->
-    <color name="surface">#FFFFFDF8</color>
-    <color name="surface_2">#FFF6F3EC</color>
-    <color name="card">#FFFFFDF8</color>
-    <color name="card_focus">#FFF0E9DA</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="surface_2">#FFF2F4F7</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="card_focus">#FFE8EEF7</color>
 
     <!-- 强调色：iOS 蓝，只用于焦点、可点元素和数值 -->
     <color name="brand_cyan">#FF007AFF</color>
@@ -35,7 +41,7 @@
 
     <!-- 分隔线与描边：浅色主题用半透明黑 -->
     <color name="scrim">#CC000000</color>
-    <color name="divider">#1A3A3528</color>
-    <color name="border">#1A3A3528</color>
-    <color name="border_strong">#4D3A3528</color>
+    <color name="divider">#1A2C3440</color>
+    <color name="border">#1A2C3440</color>
+    <color name="border_strong">#4D2C3440</color>
 </resources>

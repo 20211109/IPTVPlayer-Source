@@ -14,13 +14,18 @@
     android:paddingEnd="18dp"
     android:paddingBottom="16dp">
 
+    <!--
+        这块面板压在直播画面上，底色是近黑半透明（bg_picker_glass，75%），
+        所以标题与说明必须用白字系，不能用页面那套深灰 ——
+        深灰压在深色玻璃上等于没写，1.76 转浅色时漏改过这一处。
+    -->
     <TextView
         android:id="@+id/tvSourcePickerTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
         android:text="选择线路"
-        android:textColor="@color/text_primary"
+        android:textColor="#FFFFFFFF"
         android:textSize="@dimen/section_title"
         android:textStyle="bold" />
 
@@ -30,7 +35,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="10dp"
         android:text="当前线路卡顿或没声音时，可直接选另一条线路"
-        android:textColor="@color/text_hint"
+        android:textColor="#99FFFFFF"
         android:textSize="11sp" />
 
     <ScrollView

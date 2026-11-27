@@ -36,7 +36,7 @@
             android:id="@+id/exo_position"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_primary"
+            android:textColor="#FFFFFFFF"
             android:textSize="13sp"
             android:fontFamily="monospace" />
 
@@ -44,14 +44,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text=" / "
-            android:textColor="@color/text_hint"
+            android:textColor="#99FFFFFF"
             android:textSize="13sp" />
 
         <TextView
             android:id="@+id/exo_duration"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
+            android:textColor="#B3FFFFFF"
             android:textSize="13sp"
             android:fontFamily="monospace" />
 
@@ -65,7 +65,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@android:drawable/ic_media_rew"
-            android:tint="@color/text_primary"
+            android:tint="#FFFFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="快退"
             android:focusable="true" />
@@ -75,7 +75,7 @@
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:src="@android:drawable/ic_media_play"
-            android:tint="@color/primary"
+            android:tint="#4DA3FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="播放" />
 
@@ -84,7 +84,7 @@
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:src="@android:drawable/ic_media_pause"
-            android:tint="@color/primary"
+            android:tint="#4DA3FF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="暂停"
             android:visibility="gone" />
@@ -94,7 +94,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@android:drawable/ic_media_ff"
-            android:tint="@color/text_primary"
+            android:tint="#FFFFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="快进" />
 
@@ -108,7 +108,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:src="@android:drawable/ic_menu_view"
-            android:tint="@color/text_primary"
+            android:tint="#FFFFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="全屏" />
     </LinearLayout>

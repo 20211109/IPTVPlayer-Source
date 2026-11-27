@@ -343,7 +343,7 @@
 
                 <Button
                     android:id="@+id/btnBack"
-                    style="@style/GhostButton"
+                    style="@style/PlayerGhostButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:minHeight="40dp"
@@ -363,13 +363,13 @@
                     android:text=""
                     android:textSize="18sp"
                     android:textStyle="bold"
-                    android:textColor="@color/text_primary"
+                    android:textColor="#FFFFFFFF"
                     android:maxLines="1"
                     android:ellipsize="end" />
 
                 <Button
                     android:id="@+id/btnSwitchLine"
-                    style="@style/GhostButton"
+                    style="@style/PlayerGhostButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:minWidth="0dp"
@@ -382,7 +382,7 @@
 
                 <Button
                     android:id="@+id/btnFullscreen"
-                    style="@style/GhostButton"
+                    style="@style/PlayerGhostButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:minWidth="0dp"
@@ -448,7 +448,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="11sp"
-                android:textColor="@color/primary"
+                android:textColor="#4DA3FF"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end" />
@@ -461,7 +461,7 @@
                 android:maxWidth="420dp"
                 android:text=""
                 android:textSize="14sp"
-                android:textColor="@color/text_primary"
+                android:textColor="#FFFFFFFF"
                 android:maxLines="1"
                 android:ellipsize="end" />
 
@@ -473,7 +473,7 @@
                 android:maxWidth="420dp"
                 android:text=""
                 android:textSize="12sp"
-                android:textColor="@color/text_secondary"
+                android:textColor="#B3FFFFFF"
                 android:maxLines="1"
                 android:ellipsize="end" />
         </LinearLayout>

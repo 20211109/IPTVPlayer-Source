@@ -268,7 +268,9 @@ class ScanFrameView @JvmOverloads constructor(
         strokeWidth = 1.2f * density
     }
     private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#2EE6D6")
+        // 取景框四角：原来是一支独立的青色 #2EE6D6，全项目再无第二处用到，
+        // 截图里跟品牌蓝各说各话。统一到提亮版品牌蓝，暗画面上的醒目度也不降。
+        color = Color.parseColor("#4DA3FF")
         style = Paint.Style.STROKE
         strokeWidth = 3.5f * density
         strokeCap = Paint.Cap.ROUND

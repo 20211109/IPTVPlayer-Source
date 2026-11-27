@@ -3,18 +3,18 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <gradient android:angle="315" android:startColor="#FFF0E9DA"
-                android:centerColor="#FFF5F0E4" android:endColor="#FFE4DED0" />
+            <gradient android:angle="315" android:startColor="#FFE8EEF7"
+                android:centerColor="#FFEFF3FA" android:endColor="#FFDCE4F0" />
             <corners android:radius="22dp" />
             <stroke android:width="1.5dp" android:color="#FF007AFF" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <gradient android:angle="315" android:startColor="#FFFFFDF8"
-                android:centerColor="#FFFFFDF8" android:endColor="#FFF8F4EA" />
+            <gradient android:angle="315" android:startColor="#FFFFFFFF"
+                android:centerColor="#FFFFFFFF" android:endColor="#FFF8FAFD" />
             <corners android:radius="22dp" />
-            <stroke android:width="1dp" android:color="#143A3528" />
+            <stroke android:width="1dp" android:color="#142C3440" />
         </shape>
     </item>
 </selector>

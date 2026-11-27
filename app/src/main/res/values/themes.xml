@@ -65,6 +65,22 @@
     </style>
 
     <!--
+        播放页顶部栏专用：同一套胶囊，但文字与描边是白色系。
+
+        不能直接复用 GhostButton —— 它的深灰字是给浅色弹窗用的，
+        而顶部栏压在黑色渐变遮罩（bg_top_scrim）上，深灰字放上去等于没写。
+        这里只改颜色，尺寸、圆角、聚焦动画都与 GhostButton 保持一致。
+    -->
+    <style name="PlayerGhostButton" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textColor">#FFFFFFFF</item>
+        <item name="android:textSize">15sp</item>
+        <item name="cornerRadius">22dp</item>
+        <item name="strokeColor">#66FFFFFF</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!--
         顶部标签：当前页蓝底白字，其余白底深灰字，聚焦蓝描边。
         背景和文字色分别用 selector，遥控器移动时状态才不会错位。
     -->

@@ -3,17 +3,18 @@
     频道选择浮层的「磨砂玻璃」面板（tvOS 观感）。
     真实背景模糊由 ChannelPickerDialog 在 Android 12+ 上叠加系统模糊实现；
     低版本没有系统模糊，就用这几层叠出毛玻璃观感：
-      1) 近黑半透明底——透出后面的播放画面，而不是一块死黑的板子；
+      1) 近黑半透明底（75%）——透出后面的播放画面，而不是一块死黑的板子；
       2) 左上→右下的白色微渐变——玻璃表面的高光反射；
       3) 1dp 高光描边——玻璃边缘的厚度感；
       4) 28dp 大圆角。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 1) 半透明底 -->
+    <!-- 1) 半透明底：75%（#BF = 191/255）。再高就压成一块实心板，画面透不出来；
+         再低白卡与台标在明亮画面上会发灰，长频道名开始费劲。 -->
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#E61A1A1C" />
+            <solid android:color="#BF1A1A1C" />
             <corners android:radius="28dp" />
         </shape>
     </item>
