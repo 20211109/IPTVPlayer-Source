@@ -56,6 +56,36 @@ class EpgManager(context: Context) {
     /** 当前使用的接口模板（设置保存后立即生效，无需重启应用） */
     fun currentApi(): String = settings.apiTemplate
 
+    /**
+     * 只从已有缓存读取「正在播放」标题，绝不发起网络请求。
+     * 供频道列表的「当前节目」副标题与搜索使用 —— 列表一次可能有上百个频道，
+     * 任何逐频道的网络请求都会拖垮滑动，所以这里只认缓存，没缓存就返回 null。
+     */
+    fun peekNowTitle(channelName: String, tvgId: String): String? {
+        val nowMs = System.currentTimeMillis()
+        for (key in candidateKeys(channelName, tvgId)) {
+            val hit = mem[key] ?: readCache(key)
+            if (hit == null) continue
+            val (ts, value) = hit
+            if (nowMs - ts !in 0..CACHE_MS) continue
+            val title = value?.now?.title
+            if (!title.isNullOrBlank()) return title
+        }
+        // XMLTV 是整表缓存，没有按频道写 mem，这里直接查整表
+        if (isXmltvApi() && xmltvPrograms.isNotEmpty() && nowMs - xmltvFetchedAt in 0..CACHE_MS) {
+            val candidates = candidateKeys(channelName, tvgId).map { it.lowercase() }
+            val matched = candidates.firstNotNullOfOrNull { c ->
+                xmltvPrograms.keys.firstOrNull { it.equals(c, true) }
+            } ?: candidates.firstNotNullOfOrNull { c ->
+                xmltvPrograms.keys.firstOrNull { id ->
+                    id.startsWith(c) && (id.length == c.length || !id[c.length].isDigit())
+                }
+            } ?: return null
+            return xmltvPrograms[matched]?.lastOrNull { it.start <= nowMs && it.end > nowMs }?.title
+        }
+        return null
+    }
+
     /** 接口变更或用户手动刷新时清空缓存，避免看到旧接口的数据 */
     fun clearCache() {
         mem.clear()

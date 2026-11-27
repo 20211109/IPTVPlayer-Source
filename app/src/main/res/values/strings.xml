@@ -124,4 +124,27 @@
     <string name="fullscreen">横屏</string>
     <string name="exit_fullscreen">竖屏</string>
     <string name="settings">设置</string>
+
+    <!-- 1.89 导航改版：直播 / 收藏 / 直播源 / 我的 -->
+    <string name="nav_live">直播</string>
+    <string name="nav_favorite">收藏</string>
+    <string name="nav_source">直播源</string>
+    <string name="nav_mine">我的</string>
+    <string name="mine_title">我的</string>
+    <string name="mine_hint">设置、关于与界面布局都在这里。切换布局后界面会重新载入，播放不受影响。</string>
+    <string name="layout_switch">界面布局</string>
+    <string name="layout_switch_auto">自动（跟随设备）</string>
+    <string name="layout_switch_phone">手机布局</string>
+    <string name="layout_switch_tv">电视布局</string>
+    <string name="layout_switched">已切换为%1$s</string>
+    <string name="search_hint">搜索频道或节目</string>
+    <string name="search_clear">清除</string>
+    <string name="search_empty">没有匹配的频道</string>
+    <string name="mini_play">▶</string>
+    <string name="mini_pause">❚❚</string>
+    <string name="favorite_add">收藏</string>
+    <string name="favorite_remove">取消收藏</string>
+    <string name="favorite_added">已收藏 %1$s</string>
+    <string name="favorite_removed">已取消收藏 %1$s</string>
+    <string name="favorite_empty">还没有收藏频道\n在频道卡片右上角点星标即可收藏</string>
 </resources>

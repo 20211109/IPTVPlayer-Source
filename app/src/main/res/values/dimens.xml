@@ -56,4 +56,8 @@
     <dimen name="tab_height">40dp</dimen>
     <dimen name="tab_gap">6dp</dimen>
     <dimen name="tabs_margin_top">20dp</dimen>
+
+    <!-- 1.89 导航占用的空间：手机底部条 / 电视左侧条 -->
+    <dimen name="phone_nav_height">56dp</dimen>
+    <dimen name="tv_nav_width">120dp</dimen>
 </resources>

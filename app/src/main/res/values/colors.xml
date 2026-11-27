@@ -1,47 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-        浅色「冷灰通透」方案（Apple 设置页观感）。
-        搭配原则：冷灰底 + 纯白卡 + 淡蓝灰焦点 + 单一蓝色强调，不做多色混搭。
+        1.89「哑光黑」方案（手机与 TV 共用）。
 
-        为什么底色是冷调而不是暖白：页面要「通透」就必须让白卡浮起来，
-        暖白底会把纯白卡衬得发黄，两者只差 2% 的明度却各带色相，看起来像脏了。
-        统一到冷灰后，卡片靠明度差和描边分层，颜色只有一个蓝，整页更干净。
-
-        注意：这里只定义「不透明表面」。叠在播放画面上的浮层（长按频道表、
-        换源表）另有各的深色半透明玻璃，见 bg_picker_glass.xml，不要混用。
+        设计图给定：页面 #0B0B0C / 卡片 #1C1C1E / 次要文字 #8E8E93 /
+        描边 #D1D1D6(7%) / 主文字 #F5F5F7。
+        状态色只保留一个红 #E84643，用于「直播中」；
+        焦点一律白描边，不再用蓝色 —— 电视上白描边最醒目，也不和多色台标打架。
     -->
     <color name="black">#FF000000</color>
-    <color name="background">#FFE8EDF4</color>
-    <color name="background_2">#FFFFFFFF</color>
+    <color name="background">#FF0B0B0C</color>
+    <color name="background_2">#FF1C1C1E</color>
 
-    <!-- 表面：白卡 + 浅灰焦点 -->
-    <color name="surface">#FFFFFFFF</color>
-    <color name="surface_2">#FFF2F4F7</color>
-    <color name="card">#FFFFFFFF</color>
-    <color name="card_focus">#FFE8EEF7</color>
+    <color name="surface">#FF1C1C1E</color>
+    <color name="surface_2">#FF2C2C2E</color>
+    <color name="card">#FF1C1C1E</color>
+    <color name="card_focus">#FF2C2C2E</color>
 
-    <!-- 强调色：iOS 蓝，只用于焦点、可点元素和数值 -->
-    <color name="brand_cyan">#FF007AFF</color>
-    <color name="brand_blue">#FF007AFF</color>
+    <!-- 强调：唯一彩色是直播红 -->
+    <color name="brand_cyan">#FFE84643</color>
+    <color name="brand_blue">#FFE84643</color>
     <color name="brand_purple">#FF8E8E93</color>
-    <color name="primary">#FF007AFF</color>
-    <color name="primary_dark">#FF0062CC</color>
-    <color name="accent">#FF007AFF</color>
+    <color name="primary">#FFE84643</color>
+    <color name="primary_dark">#FFC73A38</color>
+    <color name="accent">#FFE84643</color>
+    <color name="live">#FFE84643</color>
 
-    <!-- 文字：深灰三级 -->
-    <color name="text_primary">#FF1C1C1E</color>
-    <color name="text_secondary">#FF6E6E73</color>
-    <color name="text_hint">#FF8E8E93</color>
+    <color name="text_primary">#FFF5F5F7</color>
+    <color name="text_secondary">#FF8E8E93</color>
+    <color name="text_hint">#FF6E6E73</color>
 
-    <!-- 状态色：iOS 系统色 -->
     <color name="green">#FF34C759</color>
     <color name="yellow">#FFFFCC00</color>
-    <color name="red">#FFFF3B30</color>
+    <color name="red">#FFE84643</color>
 
-    <!-- 分隔线与描边：浅色主题用半透明黑 -->
     <color name="scrim">#CC000000</color>
-    <color name="divider">#1A2C3440</color>
-    <color name="border">#1A2C3440</color>
-    <color name="border_strong">#4D2C3440</color>
+    <color name="divider">#12D1D1D6</color>
+    <color name="border">#12D1D1D6</color>
+    <color name="border_strong">#4DD1D1D6</color>
 </resources>

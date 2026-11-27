@@ -1,7 +1,5 @@
 package com.iptv.player.ui
 
-import android.content.res.Configuration
-import android.graphics.Bitmap
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,24 +9,41 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.iptv.player.R
 import com.iptv.player.data.Channel
+import com.iptv.player.data.FavoriteManager
 import com.iptv.player.util.LogoHelper
 
+/**
+ * 频道列表适配器：手机用列表行（item_channel_phone），电视用网格卡（item_channel）。
+ * 两种布局的 ID 完全一致，除「当前节目」那一行外共用同一套绑定逻辑。
+ */
 class ChannelAdapter(
     private val onChannelClick: (Channel) -> Unit,
     private val onChannelFocus: (Channel) -> Unit = {},
-    private val onChannelLongClick: (Channel) -> Unit = {}
+    private val onChannelLongClick: (Channel) -> Unit = {},
+    private val favorites: FavoriteManager? = null,
+    private val onFavoriteClick: (Channel) -> Unit = {},
+    /** 当前节目文本，由 Activity 从 EPG 缓存里取；没有则回退到分组名 */
+    private val programOf: (Channel) -> String = { it.group }
 ) : RecyclerView.Adapter<ChannelAdapter.VH>() {
 
     private val items = mutableListOf<Channel>()
     private var numberOffset = 0
+    private var phoneLayout = false
     /** 加载失败的台标地址，避免滚动时反复请求同一个坏链接 */
     private val failedLogos = mutableSetOf<String>()
 
-    fun submitList(list: List<Channel>, numberOffset: Int = 0) {
+    fun submitList(list: List<Channel>, numberOffset: Int = 0, phoneLayout: Boolean = false) {
         this.numberOffset = numberOffset
+        this.phoneLayout = phoneLayout
         items.clear()
         items.addAll(list)
         notifyDataSetChanged()
+    }
+
+    /** 收藏状态变化后只刷新受影响的那一项，避免整表重排丢失焦点 */
+    fun notifyFavoriteChanged(channel: Channel) {
+        val idx = items.indexOfFirst { it.normalizedName() == channel.normalizedName() }
+        if (idx >= 0) notifyItemChanged(idx)
     }
 
     /** 台标被用户修改后，清除失败标记以便重新加载 */
@@ -36,23 +51,22 @@ class ChannelAdapter(
         failedLogos.removeAll { it.startsWith(name + "|") }
     }
 
-    inner class VH(view: View, val isTvUi: Boolean) : RecyclerView.ViewHolder(view) {
+    inner class VH(view: View) : RecyclerView.ViewHolder(view) {
         val logoSymbol: TextView = view.findViewById(R.id.tvLogo)
         val logoImage: ImageView = view.findViewById(R.id.ivLogo)
         val number: TextView = view.findViewById(R.id.tvNumber)
         val name: TextView = view.findViewById(R.id.tvName)
         val group: TextView = view.findViewById(R.id.tvGroup)
         val score: TextView = view.findViewById(R.id.tvScore)
-        /** 分组 + 直播标识所在整行（电视端高度不够，整行隐藏） */
+        val star: ImageView = view.findViewById(R.id.ivStar)
+        /** 分组 + 直播标识所在整行 */
         val metaRow: View = view.findViewById<View>(R.id.tvGroup).parent as View
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val v = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_channel, parent, false)
-        val tv = parent.context.resources.configuration.uiMode and
-            Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-        return VH(v, tv)
+        val layout = if (phoneLayout) R.layout.item_channel_phone else R.layout.item_channel
+        val v = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        return VH(v)
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
@@ -60,20 +74,28 @@ class ChannelAdapter(
         holder.name.text = ch.name
         holder.number.text = (numberOffset + position + 1).toString()
 
-        // 卡片是竖排：台标 / 名称 / 分组行。
-        // 电视端三行卡片高度只有 82dp，塞进分组行会挤掉名称的呼吸空间，
-        // 而分组已经由上方标签筛过一遍，所以电视上只留「台标 + 名称」，最清爽。
-        holder.metaRow.visibility = if (holder.isTvUi) View.GONE else View.VISIBLE
-        holder.group.text = ch.group
+        val program = programOf(ch)
+        holder.group.text = if (program.isNotBlank()) program else ch.group
 
         bindLogo(holder, ch)
 
-        // 已取消测速：有线路就显示「直播」徽章，无线路则隐藏徽章
+        // 有线路就显示「直播中」，无线路隐藏
         if (ch.sources.isEmpty()) {
             holder.score.visibility = View.GONE
         } else {
             holder.score.visibility = View.VISIBLE
             holder.score.text = holder.itemView.context.getString(R.string.live_badge)
+        }
+
+        val fav = favorites?.isFavorite(ch) == true
+        holder.star.isSelected = fav
+        holder.star.contentDescription = holder.itemView.context.getString(
+            if (fav) R.string.favorite_remove else R.string.favorite_add
+        )
+        // 星标自己处理点击，并截断事件，避免同时触发整行的「打开频道」
+        holder.star.setOnClickListener {
+            onFavoriteClick(ch)
+            holder.star.isSelected = favorites?.isFavorite(ch) == true
         }
 
         holder.itemView.setOnClickListener { onChannelClick(ch) }
@@ -86,31 +108,21 @@ class ChannelAdapter(
         }
     }
 
-    /**
-     * 台标：先显示本地绘制的品牌图（立刻可见、绝不空白），
-     * 若该频道有可访问的网络台标，再异步替换。网络失败时保持本地图。
-     */
+    /** 台标：本地绘制图先占位，网络台标异步覆盖；失败保持本地图 */
     private fun bindLogo(holder: VH, ch: Channel) {
         val ctx = holder.itemView.context
-        val local: Bitmap = LogoHelper.localLogo(ctx, ch)
+        val local: android.graphics.Bitmap = LogoHelper.localLogo(ctx, ch)
         holder.logoSymbol.visibility = View.GONE
-
-        val url = LogoHelper.resolve(ch)
-        val key = ch.normalizedName() + "|" + (url ?: "")
-        if (url == null || failedLogos.contains(key)) {
-            holder.logoImage.setImageBitmap(local)
-            holder.logoImage.visibility = View.VISIBLE
-            return
-        }
-
         holder.logoImage.setImageBitmap(local)
         holder.logoImage.visibility = View.VISIBLE
+
+        val url = LogoHelper.resolve(ch) ?: return
+        val key = ch.normalizedName() + "|" + url
+        if (failedLogos.contains(key)) return
         holder.logoImage.load(url) {
             crossfade(true)
             listener(
-                onSuccess = { _, _ ->
-                    holder.logoImage.visibility = View.VISIBLE
-                },
+                onSuccess = { _, _ -> holder.logoImage.visibility = View.VISIBLE },
                 onError = { _, _ ->
                     failedLogos.add(key)
                     holder.logoImage.setImageBitmap(local)

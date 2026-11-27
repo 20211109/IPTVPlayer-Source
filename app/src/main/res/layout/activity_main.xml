@@ -16,17 +16,63 @@
         android:paddingEnd="@dimen/page_padding"
         android:paddingTop="@dimen/page_padding_top">
 
+        <!-- 搜索栏：按频道名 / 编号 / 当前节目名过滤，手机常驻、TV 由顶部搜索键唤出 -->
+        <LinearLayout
+            android:id="@+id/searchBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:layout_marginBottom="@dimen/section_gap">
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="@string/search_hint"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
+                android:textSize="14sp"
+                android:singleLine="true"
+                android:imeOptions="actionSearch"
+                android:importantForAutofill="no" />
+
+            <Button
+                android:id="@+id/btnSearchClear"
+                style="@style/PlayerGhostButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:text="@string/search_clear"
+                android:textSize="12sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <!--
-            顶部标签导航：当前页 + 三个入口。
-            三个入口的 id 和点击逻辑都不变，只是从右上角按钮改成标签形态。
+            旧版顶部标签行：直播 / 直播源 / 设置 / 关于。
+            1.89 起导航改为「直播 / 收藏 / 直播源 / 我的」，入口见下方的
+            phoneNav / tvNav，设置与关于收进 pageMine。
+            这里保留原 id 但整体隐藏 —— 原有点击绑定代码完全不动，避免误伤播放功能。
         -->
         <LinearLayout
+            android:id="@+id/topTabs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical|start"
             android:layout_marginTop="@dimen/tabs_margin_top"
-            android:layout_marginBottom="@dimen/header_gap">
+            android:layout_marginBottom="@dimen/header_gap"
+            android:visibility="gone">
 
             <!-- 当前页标签：与右侧三个按钮同一套尺寸，普通 TextView 保证不可点 -->
             <TextView
@@ -215,6 +261,21 @@
                         android:visibility="gone" />
                 </LinearLayout>
             </LinearLayout>
+
+            <!-- 迷你卡播放/暂停：只控制当前正在播放的频道，不另开播放器、不打断观看 -->
+            <Button
+                android:id="@+id/btnMiniPlay"
+                style="@style/PlayerGhostButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="14dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:padding="0dp"
+                android:text="@string/mini_play"
+                android:textSize="17sp"
+                android:visibility="gone" />
         </FrameLayout>
 
         <!-- 焦点频道与频道列表之间的分隔线，让两个区块层次更清楚 -->
@@ -478,5 +539,144 @@
                 android:ellipsize="end" />
         </LinearLayout>
     </FrameLayout>
+
+    <!-- ============ 我的页：设置 / 关于 / 布局切换 ============ -->
+    <LinearLayout
+        android:id="@+id/pageMine"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/page_padding"
+        android:paddingEnd="@dimen/page_padding"
+        android:paddingTop="@dimen/page_padding_top"
+        android:background="@color/background"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/mine_title"
+            android:textSize="@dimen/brand_name_text"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:layout_marginBottom="@dimen/section_gap" />
+
+        <Button
+            android:id="@+id/btnMineSettings"
+            style="@style/MineRowButton"
+            android:text="@string/settings" />
+
+        <Button
+            android:id="@+id/btnMineAbout"
+            style="@style/MineRowButton"
+            android:text="@string/about_entry" />
+
+        <Button
+            android:id="@+id/btnMineLayout"
+            style="@style/MineRowButton"
+            android:text="@string/layout_switch" />
+
+        <TextView
+            android:id="@+id/tvLayoutMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="-4dp"
+            android:layout_marginBottom="@dimen/section_gap"
+            android:text=""
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/mine_hint"
+            android:textSize="12sp"
+            android:textColor="@color/text_hint" />
+    </LinearLayout>
+
+    <!-- ============ 手机底部导航：直播 / 收藏 / 直播源 / 我的 ============ -->
+    <LinearLayout
+        android:id="@+id/phoneNav"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:background="@drawable/bg_bottom_scrim"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/navLive"
+            style="@style/NavButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/nav_live" />
+
+        <Button
+            android:id="@+id/navFavorite"
+            style="@style/NavButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/nav_favorite" />
+
+        <Button
+            android:id="@+id/navSource"
+            style="@style/NavButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/btn_config" />
+
+        <Button
+            android:id="@+id/navMine"
+            style="@style/NavButton"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:text="@string/nav_mine" />
+    </LinearLayout>
+
+    <!-- ============ 电视左侧导航：与手机同一组入口，遥控器上下焦点 ============ -->
+    <LinearLayout
+        android:id="@+id/tvNav"
+        android:layout_width="120dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:paddingTop="@dimen/page_padding_top"
+        android:background="@drawable/bg_bottom_scrim"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/tvNavLive"
+            style="@style/NavButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/nav_live" />
+
+        <Button
+            android:id="@+id/tvNavFavorite"
+            style="@style/NavButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/nav_favorite" />
+
+        <Button
+            android:id="@+id/tvNavSource"
+            style="@style/NavButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/btn_config" />
+
+        <Button
+            android:id="@+id/tvNavMine"
+            style="@style/NavButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/nav_mine" />
+    </LinearLayout>
 
 </FrameLayout>

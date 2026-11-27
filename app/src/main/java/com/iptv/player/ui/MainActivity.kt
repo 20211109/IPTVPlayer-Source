@@ -42,7 +42,9 @@ import com.iptv.player.R
 import com.iptv.player.config.PlaylistLoader
 import com.iptv.player.config.HttpCompat
 import com.iptv.player.config.PlaybackSettings
+import com.iptv.player.config.UiLayoutPrefs
 import com.iptv.player.data.Channel
+import com.iptv.player.data.FavoriteManager
 import com.iptv.player.data.M3uParser
 import com.iptv.player.data.Source
 import com.iptv.player.data.SourceRepository
@@ -66,6 +68,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var repo: SourceRepository
     private lateinit var adapter: ChannelAdapter
     private lateinit var playSettings: PlaybackSettings
+    /** 1.89 新增：收藏与界面布局偏好（都是独立存储，不碰原有配置） */
+    private lateinit var favorites: FavoriteManager
+    private lateinit var uiLayoutPrefs: UiLayoutPrefs
+    /** 当前列表页签：直播 / 收藏 */
+    private enum class ListTab { LIVE, FAVORITE }
+    private var listTab = ListTab.LIVE
+    private var searchQuery = ""
 
     private var playerManager: PlayerManager? = null
     private var stallDetector: StallDetector? = null
@@ -146,6 +155,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pageList: View
     // 必须是 FrameLayout：换内核时要往里插一张「旧画面」覆盖层（addView 只有 ViewGroup 有）
     private lateinit var pagePlayer: FrameLayout
+    /** 1.89 新增：我的页 + 两套导航 + 搜索栏 */
+    private lateinit var pageMine: View
+    private lateinit var phoneNav: View
+    private lateinit var tvNav: View
+    private lateinit var etSearch: EditText
+    private lateinit var btnSearchClear: Button
+    private lateinit var btnMiniPlay: Button
     private lateinit var recyclerView: RecyclerView
     private lateinit var tvEmpty: TextView
     private lateinit var progressBar: ProgressBar
@@ -241,11 +257,19 @@ class MainActivity : AppCompatActivity() {
         repo = SourceRepository(this)
         epgManager = EpgManager(this)
         playSettings = PlaybackSettings(this)
+        favorites = FavoriteManager(this)
+        uiLayoutPrefs = UiLayoutPrefs(this)
         // 证书策略必须在创建任何网络客户端之前生效
         HttpCompat.allowInsecureTls = playSettings.insecureTls
 
         pageList = findViewById(R.id.pageList)
         pagePlayer = findViewById(R.id.pagePlayer)
+        pageMine = findViewById(R.id.pageMine)
+        phoneNav = findViewById(R.id.phoneNav)
+        tvNav = findViewById(R.id.tvNav)
+        etSearch = findViewById(R.id.etSearch)
+        btnSearchClear = findViewById(R.id.btnSearchClear)
+        btnMiniPlay = findViewById(R.id.btnMiniPlay)
         recyclerView = findViewById(R.id.recyclerView)
         tvEmpty = findViewById(R.id.tvEmpty)
         progressBar = findViewById(R.id.progressBar)
@@ -273,12 +297,15 @@ class MainActivity : AppCompatActivity() {
         btnSwitchLine = findViewById(R.id.btnSwitchLine)
         videoHost = findViewById(R.id.videoHost)
 
-        // 列数随屏幕自适应（手机 2 列 / 平板 4 列 / TV 5 列）
-        val columns = resources.getInteger(R.integer.grid_columns)
+        // 列数随屏幕自适应；手动布局偏好优先级高于系统 uiMode
+        val columns = if (isTvUi()) 5 else 1
         adapter = ChannelAdapter(
             onChannelClick = { openChannel(it) },
             onChannelFocus = { updateHero(it) },
-            onChannelLongClick = { showLogoEditor(it) }
+            onChannelLongClick = { showLogoEditor(it) },
+            favorites = favorites,
+            onFavoriteClick = { toggleFavorite(it) },
+            programOf = { cachedProgram(it) }
         )
         recyclerView.layoutManager = GridLayoutManager(this, columns)
         recyclerView.adapter = adapter
@@ -326,6 +353,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSettings).setOnClickListener { showSettingsDialog() }
         btnFullscreen.setOnClickListener { toggleFullscreen() }
         btnSwitchLine.setOnClickListener { switchSourceManually() }
+        setupNewNavigation()
 
         // 软解内核预热：libvlc 首次加载要 1–3 秒，放在主线程就是切台时整机卡死。
         // 这里等首页稳定后在后台线程先把它建好，真正需要兜底时直接复用，几乎零等待。
@@ -390,6 +418,154 @@ class MainActivity : AppCompatActivity() {
 
         // 订阅源定时刷新：按设置档位排期，默认关闭时什么都不做
         scheduleSourceRefresh()
+    }
+
+    // ==================== 1.89 导航 / 收藏 / 搜索 / 布局切换 ====================
+
+    /** 当前是否使用电视布局：手动偏好优先，否则跟随设备 uiMode */
+    private fun isTvUi(): Boolean = uiLayoutPrefs.isTvLayout(
+        resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+    )
+
+    /** 把两套导航接到同一组动作上，并按布局偏好显示对应的一套 */
+    private fun setupNewNavigation() {
+        val goLive = View.OnClickListener { showListTab(ListTab.LIVE) }
+        val goFav = View.OnClickListener { showListTab(ListTab.FAVORITE) }
+        val goSource = View.OnClickListener { showSourceManager() }
+        val goMine = View.OnClickListener { showMinePage() }
+
+        findViewById<Button>(R.id.navLive).setOnClickListener(goLive)
+        findViewById<Button>(R.id.navFavorite).setOnClickListener(goFav)
+        findViewById<Button>(R.id.navSource).setOnClickListener(goSource)
+        findViewById<Button>(R.id.navMine).setOnClickListener(goMine)
+
+        findViewById<Button>(R.id.tvNavLive).setOnClickListener(goLive)
+        findViewById<Button>(R.id.tvNavFavorite).setOnClickListener(goFav)
+        findViewById<Button>(R.id.tvNavSource).setOnClickListener(goSource)
+        findViewById<Button>(R.id.tvNavMine).setOnClickListener(goMine)
+
+        findViewById<Button>(R.id.btnMineSettings).setOnClickListener { showSettingsDialog() }
+        findViewById<Button>(R.id.btnMineAbout).setOnClickListener { showAboutDialog() }
+        findViewById<Button>(R.id.btnMineLayout).setOnClickListener { switchLayoutMode() }
+        findViewById<TextView>(R.id.tvLayoutMode).text = uiLayoutPrefs.modeLabel
+
+        btnSearchClear.setOnClickListener {
+            etSearch.setText("")
+            etSearch.clearFocus()
+        }
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val q = s?.toString()?.trim().orEmpty()
+                if (q == searchQuery) return
+                searchQuery = q
+                btnSearchClear.visibility = if (q.isEmpty()) View.GONE else View.VISIBLE
+                applyFilter(currentGroup)
+            }
+        })
+        etSearch.setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                v.clearFocus()
+                true
+            } else false
+        }
+
+        btnMiniPlay.setOnClickListener {
+            currentChannel?.let {
+                if (fallbackPlayer != null) toggleFallbackPlayback()
+                else playerManager?.player?.let { p ->
+                    if (p.isPlaying) p.pause() else p.play()
+                }
+                updateMiniPlayButton()
+            }
+        }
+
+        applyLayoutMode()
+    }
+
+    /** 按布局偏好显隐两套导航、决定搜索栏位置、重建网格列数 */
+    private fun applyLayoutMode() {
+        val tv = isTvUi()
+        phoneNav.visibility = if (tv) View.GONE else View.VISIBLE
+        tvNav.visibility = if (tv) View.VISIBLE else View.GONE
+        // 电视布局顶部保留搜索栏（遥控器可聚焦输入），手机布局同样常驻
+        findViewById<View>(R.id.searchBar).visibility = View.VISIBLE
+        recyclerView.layoutManager = GridLayoutManager(this, if (tv) 5 else 1)
+        adapter.submitList(filteredChannels, phoneLayout = !tv)
+        updateNavSelection()
+        // 给侧边/底部导航让出空间：保留原有 page_padding，只额外加导航宽度
+        val base = resources.getDimensionPixelSize(R.dimen.page_padding)
+        pageList.setPadding(
+            base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) else 0,
+            pageList.paddingTop,
+            base,
+            base + if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)
+        )
+    }
+
+    private fun updateNavSelection() {
+        val tab = listTab
+        val pairs = listOf(
+            R.id.navLive to (tab == ListTab.LIVE),
+            R.id.navFavorite to (tab == ListTab.FAVORITE),
+            R.id.tvNavLive to (tab == ListTab.LIVE),
+            R.id.tvNavFavorite to (tab == ListTab.FAVORITE)
+        )
+        pairs.forEach { (id, selected) -> findViewById<Button>(id).isSelected = selected }
+    }
+
+    /** 切到直播 / 收藏页签；收藏页禁用分组筛选，只按收藏 + 搜索过滤 */
+    private fun showListTab(tab: ListTab) {
+        listTab = tab
+        pageMine.visibility = View.GONE
+        pageList.visibility = View.VISIBLE
+        if (pagePlayer.visibility == View.VISIBLE) closePlayer()
+        applyFilter("ALL")
+        recyclerView.scrollToPosition(0)
+        updateNavSelection()
+    }
+
+    private fun showMinePage() {
+        pageList.visibility = View.GONE
+        pageMine.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.tvLayoutMode).text = uiLayoutPrefs.modeLabel
+    }
+
+    /** 在自动 / 手机 / 电视之间循环切换，重建 Activity 以应用新布局 */
+    private fun switchLayoutMode() {
+        val next = when (uiLayoutPrefs.mode) {
+            UiLayoutPrefs.MODE_AUTO -> UiLayoutPrefs.MODE_PHONE
+            UiLayoutPrefs.MODE_PHONE -> UiLayoutPrefs.MODE_TV
+            else -> UiLayoutPrefs.MODE_AUTO
+        }
+        uiLayoutPrefs.mode = next
+        toast(getString(R.string.layout_switched, uiLayoutPrefs.modeLabel))
+        // 等 toast 显示出来再重建，避免界面瞬间闪一下把提示盖掉
+        uiHandler.postDelayed({ if (!isFinishing && !isDestroyed) recreate() }, 350L)
+    }
+
+    private fun toggleFavorite(channel: Channel) {
+        val nowFav = favorites.toggle(channel)
+        adapter.notifyFavoriteChanged(channel)
+        toast(getString(if (nowFav) R.string.favorite_added else R.string.favorite_removed, channel.name))
+        if (listTab == ListTab.FAVORITE) applyFilter(currentGroup)
+    }
+
+    /** 当前节目：优先用已缓存的 EPG 标题；没有就退回分组名 */
+    private fun cachedProgram(channel: Channel): String = try {
+        epgManager.peekNowTitle(channel.name, channel.tvgId) ?: channel.group
+    } catch (e: Exception) {
+        channel.group
+    }
+
+    /** 迷你卡的播放/暂停图标跟随真实播放状态 */
+    private fun updateMiniPlayButton() {
+        val p = playerManager?.player
+        val playing = fallbackPlayer != null || (p != null && p.isPlaying)
+        btnMiniPlay.text = getString(if (playing) R.string.mini_pause else R.string.mini_play)
+        btnMiniPlay.visibility = if (currentChannel != null) View.VISIBLE else View.GONE
     }
 
     /** 焦点卡原始高度：被压缩过之后要能还原（例如旋转屏幕、字体缩放变化后再量一次） */
@@ -885,10 +1061,20 @@ class MainActivity : AppCompatActivity() {
         groupKeys = groups
     }
 
-    /** 应用分组筛选 */
+    /** 应用分组筛选 + 收藏页签 + 搜索词（三者叠加） */
     private fun applyFilter(group: String) {
         currentGroup = group
-        filteredChannels = if (group == "ALL") channels else channels.filter { it.group == group }
+        var list = if (group == "ALL") channels else channels.filter { it.group == group }
+        if (listTab == ListTab.FAVORITE) list = list.filter { favorites.isFavorite(it) }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.lowercase(Locale.getDefault())
+            list = list.filter { ch ->
+                ch.name.lowercase(Locale.getDefault()).contains(q) ||
+                    (channels.indexOf(ch) + 1).toString() == q ||
+                    (cachedProgram(ch).lowercase(Locale.getDefault()).contains(q))
+            }
+        }
+        filteredChannels = list
         // 同步标签选中态
         for (i in 0 until groupContainer.childCount) {
             val child = groupContainer.getChildAt(i) as TextView
@@ -902,8 +1088,12 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
-        adapter.submitList(filteredChannels)
+        adapter.submitList(filteredChannels, phoneLayout = !isTvUi())
         tvChannelCount.text = "${filteredChannels.size} ${getString(R.string.channel_count)}"
+        tvEmpty.text = getString(
+            if (listTab == ListTab.FAVORITE && searchQuery.isBlank())
+                R.string.favorite_empty else R.string.search_empty
+        )
         tvEmpty.visibility = if (filteredChannels.isEmpty()) View.VISIBLE else View.GONE
         // 左右滑动切分组后，把选中的分组标签滚到可见区域
         groupScroller.post { ensureGroupChipVisible() }
@@ -1111,6 +1301,7 @@ class MainActivity : AppCompatActivity() {
         currentChannel = channel
         repo.setLastChannelName(channel.name)
         tvPlayerTitle.text = channel.name
+        updateMiniPlayButton()
         // 只有多条线路时才显示「换线」按钮，避免单线路频道给用户无效操作
         btnSwitchLine.visibility = if (channel.sources.size > 1) View.VISIBLE else View.GONE
         setStatus("正在连接…", R.color.yellow)
@@ -2299,6 +2490,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun showPlayerPage() {
         pageList.visibility = View.GONE
+        pageMine.visibility = View.GONE
+        // 导航浮在根层，播放时必须让开整块画面（返回由播放页顶部「返回」按钮承担）
+        phoneNav.visibility = View.GONE
+        tvNav.visibility = View.GONE
         pagePlayer.visibility = View.VISIBLE
         // 播放期间屏幕常亮：手机看直播时不做任何操作也会被系统锁屏
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -2343,6 +2538,8 @@ class MainActivity : AppCompatActivity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         pagePlayer.visibility = View.GONE
         pageList.visibility = View.VISIBLE
+        pageMine.visibility = View.GONE
+        applyLayoutMode()   // 恢复底部/侧边导航
         epgPanel.visibility = View.GONE
         uiHandler.removeCallbacks(hideEpgRunnable)
         // 手机退出播放恢复竖屏；TV/盒子保持横屏并恢复系统栏
@@ -2725,6 +2922,9 @@ class MainActivity : AppCompatActivity() {
     override fun onBackPressed() {
         if (pagePlayer.visibility == View.VISIBLE) {
             closePlayer()
+        } else if (pageMine.visibility == View.VISIBLE) {
+            // 「我的」是页内页签，返回先回直播列表，不直接退出应用
+            showListTab(ListTab.LIVE)
         } else {
             @Suppress("DEPRECATION")
             super.onBackPressed()

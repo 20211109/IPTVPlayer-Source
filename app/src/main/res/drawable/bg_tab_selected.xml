@@ -2,6 +2,6 @@
 <!-- 顶部标签：当前页固定蓝底白字。不用选中状态，因为布局 XML 无法静态设置它 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FF007AFF" />
+    <solid android:color="#FFE84643" />
     <corners android:radius="20dp" />
 </shape>

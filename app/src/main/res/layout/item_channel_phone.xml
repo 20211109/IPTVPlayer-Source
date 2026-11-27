@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    手机端频道行（布局方案 B：列表优先）。
+    一行固定「编号 / 台标 / 频道名 / 当前节目 / 收藏星标」，
+    纵向扫读，单屏能看到更多频道；星标与整行点击互不冲突。
+    ID 与 item_channel.xml 保持一致，ChannelAdapter 可共用同一套绑定逻辑。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/card"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/card_height"
+    android:layout_margin="@dimen/card_margin"
+    android:focusable="true"
+    android:clickable="true"
+    android:background="@drawable/bg_channel_card"
+    android:stateListAnimator="@animator/focus_scale"
+    android:clipChildren="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="10dp"
+        android:paddingEnd="8dp">
+
+        <!-- 编号：按设计图做成彩色方块 -->
+        <TextView
+            android:id="@+id/tvNumber"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:background="@drawable/bg_number"
+            android:text="1"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFFFF" />
+
+        <!-- 台标 -->
+        <FrameLayout
+            android:layout_width="@dimen/card_logo_size"
+            android:layout_height="@dimen/card_logo_size"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/bg_logo_placeholder">
+
+            <TextView
+                android:id="@+id/tvLogo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="C"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/ivLogo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:padding="3dp"
+                android:contentDescription="台标" />
+        </FrameLayout>
+
+        <!-- 名称 + 当前节目 + 直播标识 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <androidx.appcompat.widget.AppCompatTextView
+                android:id="@+id/tvName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="CCTV1"
+                android:textSize="@dimen/card_name"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:maxLines="1"
+                android:ellipsize="end"
+                app:autoSizeTextType="uniform"
+                app:autoSizeMinTextSize="@dimen/card_name_min"
+                app:autoSizeMaxTextSize="@dimen/card_name"
+                app:autoSizeStepGranularity="1sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvGroup"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minWidth="0dp"
+                    android:text="综合频道"
+                    android:textSize="@dimen/card_meta"
+                    android:textColor="@color/text_secondary"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/tvScore"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:gravity="center"
+                    android:background="@drawable/bg_badge_live"
+                    android:text="直播中"
+                    android:textSize="@dimen/card_badge"
+                    android:textColor="@color/live"
+                    android:textStyle="bold"
+                    android:maxLines="1" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 收藏星标：独立于整行点击，TV 端由遥控器聚焦后按确认 -->
+        <ImageView
+            android:id="@+id/ivStar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="6dp"
+            android:padding="4dp"
+            android:src="@drawable/ic_star_off"
+            android:contentDescription="@string/favorite_add"
+            android:focusable="true"
+            android:clickable="true" />
+    </LinearLayout>
+</FrameLayout>

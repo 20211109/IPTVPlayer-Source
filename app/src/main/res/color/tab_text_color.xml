@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 顶部标签文字：选中白字，聚焦蓝字，其余深灰字 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_selected="true" android:color="#FFFFFFFF" />
-    <item android:state_focused="true" android:color="#FF007AFF" />
-    <item android:color="#FF1C1C1E" />
+    <item android:state_selected="true" android:color="#FFF5F5F7" />
+    <item android:state_focused="true" android:color="#FFE84643" />
+    <item android:color="#FF8E8E93" />
 </selector>

@@ -17,6 +17,6 @@
         android:centerX="0.5"
         android:centerY="0.38"
         android:gradientRadius="1400dp"
-        android:startColor="#FFEFF3F9"
-        android:endColor="#FFD6DEEA" />
+        android:startColor="#FF17171A"
+        android:endColor="#FF08080A" />
 </shape>
