@@ -1606,6 +1606,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 换内核专用：清掉「重测排期」，但**保留已经得出的画幅结论**。
+     *
+     * 以前这里调的是 [resetAutoCrop]，它会把 cropMode 清成 NONE，于是软解内核的
+     * 第一帧只能按「完整画面」出画（4:3 频道上下留黑），等出画后再重新判一次、
+     * 把画面放大铺满 —— 用户看到的就是「上下拉一下」。
+     *
+     * 黑边是内容属性，同一路流换渲染内核不会变，没有理由重算。这里保留结论：
+     * - 已有结论（CROP / STRETCH）：直接沿用，首帧就是最终画幅，全程零跳动；
+     * - 还没有结论（起播不到一秒就切了内核）：保持 autoCropDone=false，
+     *   出画后仍会补测一次，与旧行为一致。
+     */
+    private fun resetAutoCropKeepResult() {
+        uiHandler.removeCallbacks(autoCropRunnable)
+        autoCropScheduled = false
+        autoCropTries = 0
+        autoCropCandidatePct = 0
+        autoCropStableHits = 0
+        // 有结论就当作已完成（不再重测，避免二次变化）；没结论才允许出画后补测
+        autoCropDone = cropMode != CropMode.NONE
+        // 刻意不动 cropMode，也不调 applyVideoLayout：画面此刻仍是旧结论，不闪
+    }
+
     /** @param delayMs 起播后多久开始采样：VLC 兜底重建管线较慢，要给足时间 */
     private fun scheduleAutoCrop(delayMs: Long) {
         if (!playSettings.autoCrop) return
@@ -1778,8 +1801,9 @@ class MainActivity : AppCompatActivity() {
         }
         // 同一时间只保留一个兜底内核
         releaseVlcFallback()
-        // 换了内核就等于换了渲染路径，黑边判断结果作废，出画后重测
-        resetAutoCrop()
+        // 换内核不等于换画面：沿用主内核已经算出的黑边结论，不要清成「完整画面」，
+        // 否则首帧会先按未裁切的比例出来、稍后再放大铺满（「上下拉一下」）
+        resetAutoCropKeepResult()
         // 必须在停 Exo 之前贴上去，否则中间会露出一帧黑
         if (frame != null) showSwitchFrame(frame)
         // 必须先停掉 Exo：硬解码器实例有限，Exo 不释放 VLC 就起不来
@@ -2695,10 +2719,15 @@ private const val OVERLAY_AUTO_HIDE_MS = 4_500L
  * 换内核时那层「旧画面静止图」，在 VLC 出首帧之后再压多久才淡出。
  *
  * 要盖住两件事：① VLC 首帧之前那块黑洞；② setVideoScale 是异步下发，
- * Playing 之后 400ms 还有一次重试，画幅可能到那时才真正生效（表现为画面「上下拉一下」）。
- * 480ms 刚好把 400ms 那次重试也包在里面。
+ * Playing 之后 400ms / 1200ms 各有一次重试，画幅可能到那时才真正生效
+ * （表现为画面「上下拉一下」）。
+ *
+ * 1.83 实测：只盖 480ms 不够 —— 裁切是在 1200ms 那次重试才真正落到屏幕上的。
+ * 这里取 1300ms，把最后一次重试连同它的渲染延迟一起盖住。
+ * 代价是揭开前多定格约半秒，但覆盖层显示的是切换前的同一路画面，
+ * 观感是「画面稍稍停了一下」，比看得见的比例跳变好得多。
  */
-private const val SWITCH_FRAME_HOLD_MS = 480L
+private const val SWITCH_FRAME_HOLD_MS = 1_300L
 
 /** 静止图淡出时长：太长会像卡了一下，太短又能看到硬切 */
 private const val SWITCH_FRAME_FADE_MS = 200L

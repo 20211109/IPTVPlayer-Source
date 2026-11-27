@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    下拉框（Spinner）的焦点框。
+    Spinner 默认样式只在聚焦时保留原样，电视上遥控器移过去几乎看不出差别，
+    用户会以为「没有光标、选不动」。这里套一层容器（addStatesFromChildren），
+    聚焦时给出蓝色描边 + 淡蓝底，和数值胶囊的视觉反馈保持同一套语言。
+    未聚焦态用同样宽度的透明描边，避免状态切换时布局跳动。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#14007AFF" />
+            <corners android:radius="8dp" />
+            <stroke android:width="2dp" android:color="@color/primary" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="8dp" />
+            <stroke android:width="2dp" android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</selector>

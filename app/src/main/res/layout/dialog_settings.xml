@@ -118,11 +118,20 @@
         <!-- 画面比例 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="画面比例" />
-            <Spinner
-                android:id="@+id/spZoomMode"
-                android:layout_width="170dp"
+            <!-- 电视遥控器聚焦时必须看得见：Spinner 自身没有焦点态，套一层带描边的容器 -->
+            <FrameLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:entries="@array/zoom_mode_labels" />
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spZoomMode"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/zoom_mode_labels" />
+            </FrameLayout>
         </LinearLayout>
 
         <!-- 自定义缩放百分比 -->
@@ -145,11 +154,19 @@
         <!-- 去黑边档位 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="去黑边档位" />
-            <Spinner
-                android:id="@+id/spCropStrength"
-                android:layout_width="170dp"
+            <FrameLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:entries="@array/auto_crop_strength_labels" />
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spCropStrength"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/auto_crop_strength_labels" />
+            </FrameLayout>
         </LinearLayout>
 
         <TextView
@@ -163,21 +180,37 @@
         <!-- 解码器优先策略 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="解码器优先" />
-            <Spinner
-                android:id="@+id/spDecoder"
-                android:layout_width="170dp"
+            <FrameLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:entries="@array/decoder_labels" />
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spDecoder"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/decoder_labels" />
+            </FrameLayout>
         </LinearLayout>
 
         <!-- 渲染方式 -->
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="渲染方式" />
-            <Spinner
-                android:id="@+id/spRender"
-                android:layout_width="170dp"
+            <FrameLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:entries="@array/render_labels" />
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spRender"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/render_labels" />
+            </FrameLayout>
         </LinearLayout>
 
         <!-- 音频开关（仅视频） -->
@@ -255,11 +288,19 @@
 
         <LinearLayout style="@style/SettingRow">
             <TextView style="@style/SettingLabel" android:text="刷新间隔" />
-            <Spinner
-                android:id="@+id/spSourceRefresh"
-                android:layout_width="170dp"
+            <FrameLayout
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:entries="@array/source_refresh_labels" />
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spSourceRefresh"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/source_refresh_labels" />
+            </FrameLayout>
         </LinearLayout>
 
         <LinearLayout style="@style/SettingRow">
