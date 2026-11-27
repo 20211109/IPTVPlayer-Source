@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 星标：View.isSelected 切换实心/空心，默认分支必须引用独立的 shape，不能引用自身 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/ic_star_on" android:state_selected="true" />
-    <item android:drawable="@drawable/ic_star_off" />
+    <item android:drawable="@drawable/ic_star_off_shape" />
 </selector>

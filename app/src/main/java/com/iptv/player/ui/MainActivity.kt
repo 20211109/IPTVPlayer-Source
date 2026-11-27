@@ -503,6 +503,13 @@ class MainActivity : AppCompatActivity() {
             base,
             base + if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)
         )
+        // 「我的」页同样铺满根布局，必须一起让开，否则 TV 左侧导航会压住设置/关于按钮
+        pageMine.setPadding(
+            base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) else 0,
+            resources.getDimensionPixelSize(R.dimen.page_padding_top),
+            base,
+            base + if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)
+        )
     }
 
     private fun updateNavSelection() {
@@ -1068,9 +1075,11 @@ class MainActivity : AppCompatActivity() {
         if (listTab == ListTab.FAVORITE) list = list.filter { favorites.isFavorite(it) }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.lowercase(Locale.getDefault())
-            list = list.filter { ch ->
+            // 编号要跟界面显示一致：界面用的是「分组+收藏过滤后」列表的下标 +1，
+            // 不能用 channels 全量下标，否则分组筛选后搜「1」命中的不是你看到的第 1 个。
+            list = list.filterIndexed { index, ch ->
                 ch.name.lowercase(Locale.getDefault()).contains(q) ||
-                    (channels.indexOf(ch) + 1).toString() == q ||
+                    (index + 1).toString() == q ||
                     (cachedProgram(ch).lowercase(Locale.getDefault()).contains(q))
             }
         }
@@ -1567,6 +1576,7 @@ class MainActivity : AppCompatActivity() {
         pm.player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 pbLoading.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
+                updateMiniPlayButton()
                 when (state) {
                     Player.STATE_READY -> {
                         setStatus("$currentLineLabel · 播放中", R.color.green)
@@ -1577,6 +1587,12 @@ class MainActivity : AppCompatActivity() {
                         setStatus("$currentLineLabel · 缓冲中…", R.color.yellow)
                     }
                 }
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                // 列表页迷你卡的播放/暂停图标必须跟着真实状态走，
+                // 否则在播放页暂停/继续后退回列表，图标还是旧的。
+                updateMiniPlayButton()
             }
         })
 
@@ -2055,6 +2071,7 @@ class MainActivity : AppCompatActivity() {
                 fallbackTimeoutRunnable?.let { uiHandler.removeCallbacks(it) }
                 fallbackTimeoutRunnable = null
                 pbLoading.visibility = View.GONE
+                updateMiniPlayButton()
                 // 出画后再按轨道比例定一次画幅：软解频道以前完全不走比例判断，
                 // 手机上就一直留着左右黑边（这里补上，且与主内核同一套规则）。
                 // force：VLC 重建管线（转屏、卡死恢复）后是新实例，画幅要重灌一遍。
@@ -2539,6 +2556,7 @@ class MainActivity : AppCompatActivity() {
         pagePlayer.visibility = View.GONE
         pageList.visibility = View.VISIBLE
         pageMine.visibility = View.GONE
+        updateMiniPlayButton()
         applyLayoutMode()   // 恢复底部/侧边导航
         epgPanel.visibility = View.GONE
         uiHandler.removeCallbacks(hideEpgRunnable)
