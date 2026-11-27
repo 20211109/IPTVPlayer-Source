@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    冷灰底：中间提亮一档，白卡压在上面层次刚好。
+    冷灰底：中心略提亮，四周压暗一档。
 
-    中心色刻意停在 #F7F9FC 而不是纯白：卡片本身就是 #FFFFFF，
-    底色一旦也是纯白，屏幕中间那几行卡片就只剩 8% 的描边，等于消失了。
-    留这 3% 的明度差，整页才「看得见卡片、又不像深色底那么闷」。
+    1.85 之前用的是接近纯白的线性渐变（#F2F4F7 → #F7F9FC），整体偏亮，
+    大面积铺在手机上有点刺眼。这里整体下降一档，并改成径向：中心亮、四周暗，
+    既缓解刺眼，也给上层半透卡片留出可透出的明暗差
+    （底色若是完全均匀的，卡片透与不透在屏幕上根本看不出区别）。
+
+    中心停在 #EFF3F9 而不是更白：卡片是 92% 白，压在中心区约 #FDFDFF、
+    压在角落里约 #FBFBFE，卡片会随位置有极细微的明暗变化 —— 这就是「玻璃片」的观感来源。
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <gradient
-        android:angle="270"
-        android:startColor="#FFF2F4F7"
-        android:centerColor="#FFF7F9FC"
-        android:endColor="#FFF2F4F7"
-        android:type="linear" />
+        android:type="radial"
+        android:centerX="0.5"
+        android:centerY="0.38"
+        android:gradientRadius="1400dp"
+        android:startColor="#FFEFF3F9"
+        android:endColor="#FFD6DEEA" />
 </shape>

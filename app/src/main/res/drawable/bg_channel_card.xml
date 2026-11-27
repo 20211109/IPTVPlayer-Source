@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    浅色频道卡：白卡 + 发丝描边；焦点时浅灰底 + 蓝色描边。
+    浅色频道卡：92% 白 + 发丝描边；焦点时浅灰底 + 蓝色描边。
     蓝色只在焦点出现，平时整页只有白、浅灰、深灰三种层次。
+
+    这里用 92% 而不是纯白：卡片叠在 bg_app_gradient 的径向底上，
+    会随所在位置透出一点底层明暗（约 2 个色阶），边缘看起来是「玻璃片」而不是「纸片」。
+    再低就会显脏（白卡发灰、台标彩色块边缘泛色），92% 是这套浅色方案能压到的下限。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
@@ -20,7 +24,7 @@
     </item>
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FFFFFFFF" />
+            <solid android:color="#EBFFFFFF" />
             <corners android:radius="16dp" />
             <stroke android:width="1dp" android:color="#142C3440" />
         </shape>

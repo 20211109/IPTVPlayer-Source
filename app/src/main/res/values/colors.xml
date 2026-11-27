@@ -12,7 +12,7 @@
         换源表）另有各的深色半透明玻璃，见 bg_picker_glass.xml，不要混用。
     -->
     <color name="black">#FF000000</color>
-    <color name="background">#FFF2F4F7</color>
+    <color name="background">#FFE8EDF4</color>
     <color name="background_2">#FFFFFFFF</color>
 
     <!-- 表面：白卡 + 浅灰焦点 -->

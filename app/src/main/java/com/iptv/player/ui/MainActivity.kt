@@ -1490,6 +1490,18 @@ class MainActivity : AppCompatActivity() {
             // （1.61 实测那套在这台机器上一点效果都没有，VLC 视频输出压根不认缩放指令）。
             val videoAspect = if (lastVideoH > 0 && lastVideoW > 0) lastVideoW.toFloat() / lastVideoH else 0f
             fb.setStretchAspect(if (vlcStretch) videoAspect else 0f)
+            // 竖屏 + 适应屏幕：直接把视频层做成视频矩形，从第一帧起就是最终几何。
+            // 竖屏下窗口比例（约 0.46）和视频比例（1.78）差得最远，libvlc 的
+            // 「先按窗口建 vout、再在里面缩放」会表现为「先往左右拉、再上下缩」；
+            // 视图本身就等于视频矩形后，窗口比例与视频一致，那两下都不再发生。
+            val portrait = if (videoHost.width > 0 && videoHost.height > 0) {
+                videoHost.height > videoHost.width
+            } else {
+                // 宿主还没布局完时按系统方向判断，否则竖屏首个频道会漏掉这一档
+                resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+            }
+            val vlcFit = portrait && playSettings.zoomMode == "fit" && !vlcCrop && !vlcStretch
+            fb.setFitAspect(if (vlcFit) videoAspect else 0f)
             val vlcMode = when {
                 vlcCrop -> "fit"          // 由 SURFACE_FILL 负责裁切
                 vlcStretch -> "fit"       // 由缓冲比例负责铺满（best-fit 进缓冲即满）
@@ -2084,7 +2096,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         }
-        return if (portrait) SWITCH_FRAME_HOLD_VERTICAL_MS else SWITCH_FRAME_HOLD_MS
+        if (!portrait) return SWITCH_FRAME_HOLD_MS
+        // 竖屏：视频层已经按视频比例定尺寸（VlcFallbackPlayer.fitAspect），
+        // 出画即最终几何，不再需要用长遮挡去藏「拉一下」—— 盖住首帧前的黑就够。
+        // 拿不到轨道比例时 fitAspect 不会启用，退回旧的长遮挡。
+        return if (lastVideoW > 0 && lastVideoH > 0) SWITCH_FRAME_HOLD_VERTICAL_FIT_MS
+        else SWITCH_FRAME_HOLD_VERTICAL_MS
     }
 
     /** 重新开始遮挡计时（VLC 重建 vout 时用）：已经在淡出/已揭开就不管了 */
@@ -2764,6 +2781,14 @@ private const val SWITCH_FRAME_HOLD_MS = 1_300L
  * 重建前后的位移与缩放都在这一段里，必须整段盖住。
  */
 private const val SWITCH_FRAME_HOLD_VERTICAL_MS = 2_200L
+
+/**
+ * 竖屏 + 已按视频比例定视频层尺寸时的遮挡时长。
+ *
+ * 这一档画面几何在起播前就定死了，出画即最终形态，没有需要藏的缩放动作，
+ * 静止图只需盖住「VLC 首帧之前那块黑」。再按 2.2 秒盖就是白白定格，反而像卡住。
+ */
+private const val SWITCH_FRAME_HOLD_VERTICAL_FIT_MS = 1_000L
 
 /** 静止图淡出时长：太长会像卡了一下，太短又能看到硬切 */
 private const val SWITCH_FRAME_FADE_MS = 200L

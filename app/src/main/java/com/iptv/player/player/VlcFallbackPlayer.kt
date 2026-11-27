@@ -96,6 +96,62 @@ class VlcFallbackPlayer(
     private var bufferH = 0
 
     /**
+     * 「视频层直接按视频比例定尺寸」（0 = 不启用，视图铺满宿主）。
+     *
+     * 只有竖屏看横屏内容会用到它：此时窗口宽高比（约 0.46）和视频比例（1.78）差得最远。
+     * libvlc 的 best-fit 是「先按窗口建 vout，再在窗口里缩放」，出画前画面按窗口铺满、
+     * 出画后才缩成视频比例 —— 这就是竖屏下「先往左右拉一下、再上下缩一下」的来源，
+     * 也是 1.82~1.84 反复加长遮挡始终盖不住的原因：那两下是 vout 内部的重排，不是黑帧。
+     *
+     * 与其事后遮挡，不如一开始就让 SurfaceView 本身等于视频矩形：
+     * 交给 libvlc 的窗口尺寸 `setWindowSize()` 也是这个矩形，等比例窗口上 best-fit
+     * 就是满铺 —— 第一帧即最终形态，全程没有缩放动作，也不会出现「窗口尺寸对不上要重建」。
+     *
+     * 为什么只在竖屏启用：横屏时自动去黑边走 `SURFACE_FILL`，它要求视图大于窗口才裁得动；
+     * 视图一缩成视频矩形就没有可裁的余量了。竖屏本来不做裁切（黑边在上下），两者互不干扰。
+     */
+    private var fitAspect = 0f
+
+    /**
+     * 让视频层按 [aspect] 定尺寸（0 = 回到铺满宿主）。
+     *
+     * 与 [setStretchAspect] 互斥：那个改的是渲染缓冲（视图仍满屏），这个改的是视图本身。
+     * 起播前调用只记字段，不触发任何重建；转屏后调用才需要重建（窗口尺寸真的变了）。
+     */
+    fun setFitAspect(aspect: Float) {
+        val a = if (aspect > 0.2f && aspect < 6f) aspect else 0f
+        if (abs(a - fitAspect) < 0.005f) return
+        fitAspect = a
+        bufferW = 0
+        bufferH = 0
+        if (!released && player != null) {
+            layoutSurface()
+            scheduleRestart()
+        }
+    }
+
+    /**
+     * 视频矩形在宿主里的实际像素尺寸（按视频比例内缩、居中）。
+     * 宿主还没量到尺寸时返回 0，由调用方退回旧逻辑。
+     */
+    private fun fitRectSize(): Pair<Int, Int> {
+        if (fitAspect <= 0f) return 0 to 0
+        // 刻意不退回屏幕尺寸：宿主还没量到时必须返回 0，交给 startEngine 等待。
+        // 否则会先按整屏算一个偏大的矩形、起播后宿主变了再重建 —— 那就白改了。
+        val hw = host.width
+        val hh = host.height
+        if (hw <= 0 || hh <= 0) return 0 to 0
+        val hostAspect = hw.toFloat() / hh
+        return if (fitAspect >= hostAspect) {
+            // 视频比宿主更宽：宽度铺满，上下内缩（竖屏看 16:9 就是这一支）
+            hw to (hw / fitAspect).toInt().coerceIn(1, hh)
+        } else {
+            // 视频比宿主更窄：高度铺满，左右内缩
+            (hh * fitAspect).toInt().coerceIn(1, hw) to hh
+        }
+    }
+
+    /**
      * 告诉 VLC 内核「要按这个比例铺满」。传 0 表示不启用（按原比例居中）。
      * 已经开播时比例变了必须重建管线（缓冲尺寸变了），走 scheduleRestart。
      */
@@ -223,6 +279,8 @@ class VlcFallbackPlayer(
     fun onHostResized() {
         if (released) return
         if (zoomMode == "scale") layoutSurface()
+        // 按比例定尺寸时视图尺寸跟着宿主走，宿主变了必须重排
+        if (fitAspect > 0f) layoutSurface()
         if (bufferAspect > 0f) {
             // 拉伸缓冲的高度是跟着宿主走的，宿主变了必须重算
             val oldW = bufferW
@@ -235,9 +293,15 @@ class VlcFallbackPlayer(
         maybeRestartIfSizeChanged()
     }
 
-    /** 当前该交给 VLC 的窗口尺寸：拉伸模式是渲染缓冲，否则是视图尺寸 */
+    /** 当前该交给 VLC 的窗口尺寸：拉伸模式是渲染缓冲，按比例定尺寸模式是视频矩形，否则是视图尺寸 */
     private fun targetSurfaceSize(): Pair<Int, Int> {
         if (bufferW > 0 && bufferH > 0) return bufferW to bufferH
+        if (fitAspect > 0f) {
+            // 直接按宿主与比例算，不去读 sv.width：起播瞬间视图还没布局完，
+            // 读到的可能是 0 或上一次的旧尺寸，那正是 vout 建错尺寸又要重建的由来。
+            // 宿主也还没量到时返回 0，由 startEngine 等待，绝不用兜底值先起播。
+            return fitRectSize()
+        }
         val sv = surfaceView ?: return 0 to 0
         return sv.width to sv.height
     }
@@ -257,6 +321,9 @@ class VlcFallbackPlayer(
     private fun computeBuffer() {
         bufferW = 0
         bufferH = 0
+        // 按视频比例定尺寸时不需要再套一层渲染缓冲：视图本身已经是视频矩形，
+        // 两套机制叠加会把画面拉两次。
+        if (fitAspect > 0f) return
         if (bufferAspect <= 0f) return
         val hw = fallbackWidth()
         val hh = fallbackHeight()
@@ -334,6 +401,12 @@ class VlcFallbackPlayer(
             val h = if (sh > 0) sh else fallbackHeight()
             voutWidth = w
             voutHeight = h
+
+            // 按视频比例定尺寸时，视图必须在交出窗口尺寸之前就摆成同一个矩形。
+            // beginSession 建视图那一刻宿主可能还没量到尺寸（fitRectSize 返回 0），
+            // 那次 layoutParams 只能是 MATCH_PARENT；这里补一次，否则窗口是视频矩形、
+            // 视图仍是整屏，画面会被合成器横向拉满 —— 比不改还糟。
+            if (fitAspect > 0f) layoutSurface()
 
             // LibVLC 是全局单例（见 VlcCore）：这里只拿现成的实例，不再每次 new。
             // 旧写法在这里 new LibVLC() 要 1–3 秒，且发生在主线程，直接表现为界面卡死。
@@ -574,6 +647,14 @@ class VlcFallbackPlayer(
                 val factor = zoomScalePct / 100f
                 lp.width = (hostW * factor).toInt().coerceAtLeast(1)
                 lp.height = (hostH * factor).toInt().coerceAtLeast(1)
+            }
+        } else if (fitAspect > 0f) {
+            // 视图本身就是视频矩形：交给 VLC 的窗口尺寸与之相同，best-fit 等于满铺，
+            // 出画前后画面几何完全一致，不会「拉」。
+            val (w, h) = fitRectSize()
+            if (w > 0 && h > 0) {
+                lp.width = w
+                lp.height = h
             }
         }
         return lp
