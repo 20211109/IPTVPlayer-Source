@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    频道卡片：竖向三段式 —— 台标 / 频道名（独占整行宽度）/ 分组·直播标识。
-
-    旧版是「台标 | 名称」横排，名称只能分到卡片宽度的零头：
-    电视 5 列时只剩 80dp、手机开 3 列时更是只剩 30dp 左右，
-    于是无论怎么调字号都只能显示「央…」「CCTV1…」。
-    改成竖排后名称可用宽度 = 卡片整宽，再配合自适应字号（autosize），
-    长名称会自己缩一号字，而不是被省略号截掉。
+    TV 大屏频道卡（设计图：大屏直播频道布局）
+    横向排版：左侧彩色台标方块 + 右侧频道名 / 当前节目，单屏 5×4。
+    焦点态描边由 bg_channel_card 给出（3px 白框），配合 focus_scale 放大 4%。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -14,22 +10,21 @@
     android:layout_width="match_parent"
     android:layout_height="@dimen/card_height"
     android:layout_margin="@dimen/card_margin"
-    android:focusable="true"
-    android:clickable="true"
     android:background="@drawable/bg_channel_card"
-    android:stateListAnimator="@animator/focus_scale"
-    android:clipChildren="false">
+    android:clipChildren="false"
+    android:clickable="true"
+    android:focusable="true"
+    android:stateListAnimator="@animator/focus_scale">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center_horizontal|center_vertical"
-        android:paddingStart="@dimen/card_padding_h"
-        android:paddingEnd="@dimen/card_padding_h"
-        android:paddingTop="@dimen/card_padding"
-        android:paddingBottom="@dimen/card_padding">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp">
 
+        <!-- 台标方块：本地绘制图兜底，网络台标异步覆盖 -->
         <FrameLayout
             android:layout_width="@dimen/card_logo_size"
             android:layout_height="@dimen/card_logo_size"
@@ -41,7 +36,7 @@
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="C"
-                android:textSize="20sp"
+                android:textSize="18sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary"
                 android:visibility="gone" />
@@ -50,96 +45,73 @@
                 android:id="@+id/ivLogo"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:scaleType="fitCenter"
-                android:padding="3dp"
-                android:contentDescription="台标" />
+                android:contentDescription="台标"
+                android:padding="2dp"
+                android:scaleType="fitCenter" />
         </FrameLayout>
 
-        <!-- 名称：单行 + 自适应字号（9~14sp 之间自动挑能放下的最大字号） -->
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/tvName"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/card_name_gap"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:text="CCTV1综合"
-            android:textSize="@dimen/card_name"
-            android:textStyle="bold"
-            android:textColor="@color/text_primary"
-            android:maxLines="1"
-            android:ellipsize="end"
-            app:autoSizeTextType="uniform"
-            app:autoSizeMinTextSize="@dimen/card_name_min"
-            app:autoSizeMaxTextSize="@dimen/card_name"
-            app:autoSizeStepGranularity="1sp" />
-
+        <!-- 频道名 + 当前节目 -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:minWidth="0dp"
+            android:orientation="vertical">
+
+            <androidx.appcompat.widget.AppCompatTextView
+                android:id="@+id/tvName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="CCTV1"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/card_name"
+                android:textStyle="bold"
+                app:autoSizeMaxTextSize="@dimen/card_name"
+                app:autoSizeMinTextSize="@dimen/card_name_min"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform" />
 
             <TextView
                 android:id="@+id/tvGroup"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:minWidth="0dp"
-                android:text="央视频道"
-                android:textSize="@dimen/card_meta"
-                android:textColor="@color/text_secondary"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
                 android:maxLines="1"
-                android:ellipsize="end" />
-
-            <TextView
-                android:id="@+id/tvScore"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:gravity="center"
-                android:background="@drawable/bg_badge_live"
-                android:drawableStart="@drawable/bg_dot_live"
-                android:drawablePadding="3dp"
-                android:paddingStart="5dp"
-                android:paddingEnd="5dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:text="直播"
-                android:textSize="@dimen/card_badge"
+                android:text="新闻联播 · 19:00"
                 android:textColor="@color/text_secondary"
-                android:textStyle="bold" />
+                android:textSize="@dimen/card_meta" />
         </LinearLayout>
+
+        <!-- 收藏星标：按用户要求保留，但缩小到 20dp，不抢频道名位置 -->
+        <ImageView
+            android:id="@+id/ivStar"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="6dp"
+            android:clickable="true"
+            android:contentDescription="@string/favorite_add"
+            android:focusable="true"
+            android:padding="1dp"
+            android:src="@drawable/ic_star_off_shape" />
     </LinearLayout>
 
-    <!-- 序号徽章：贴在卡片左上角（不再依赖负 margin 压在台标上） -->
+    <!-- 序号与直播标识：TV 设计图卡片不展示，保留 ID 供适配器共用绑定逻辑 -->
     <TextView
         android:id="@+id/tvNumber"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_margin="6dp"
-        android:background="@drawable/bg_number"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp"
-        android:paddingTop="1dp"
-        android:paddingBottom="1dp"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
         android:text="1"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFFFF" />
+        android:visibility="gone" />
 
-    <!-- 收藏星标：右上，避开左上角编号 -->
-    <ImageView
-        android:id="@+id/ivStar"
-        android:layout_width="30dp"
-        android:layout_height="30dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="6dp"
-        android:padding="4dp"
-        android:src="@drawable/ic_star_off"
-        android:contentDescription="@string/favorite_add"
-        android:focusable="true"
-        android:clickable="true" />
+    <TextView
+        android:id="@+id/tvScore"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:text="直播"
+        android:visibility="gone" />
 </FrameLayout>

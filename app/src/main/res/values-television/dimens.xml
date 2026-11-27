@@ -8,7 +8,7 @@
          目标：540dp 高度下稳定露出三行频道。
          竖向预算 ≈ 12(顶部) + 37(标题) + 118(焦点卡) + 48(分区行) + 44(分组标签) = 259dp
          剩余约 281dp → 三行 (82 + 2*4)margins = 270dp，留有余量吸收字体缩放。 -->
-    <dimen name="page_padding">40dp</dimen>
+    <dimen name="page_padding">24dp</dimen>
     <dimen name="page_padding_top">12dp</dimen>
     <dimen name="hero_height">112dp</dimen>
     <dimen name="hero_title">23sp</dimen>
@@ -17,12 +17,12 @@
     <dimen name="hero_badge_pad_h">9dp</dimen>
     <dimen name="hero_badge_gap">8dp</dimen>
     <dimen name="section_title">19sp</dimen>
-    <dimen name="card_height">82dp</dimen>
-    <dimen name="card_logo_size">42dp</dimen>
+    <dimen name="card_height">74dp</dimen>
+    <dimen name="card_logo_size">40dp</dimen>
     <dimen name="card_padding">5dp</dimen>
     <dimen name="card_padding_h">8dp</dimen>
-    <dimen name="card_name">15sp</dimen>
-    <dimen name="card_name_min">10sp</dimen>
+    <dimen name="card_name">16sp</dimen>
+    <dimen name="card_name_min">12sp</dimen>
     <dimen name="card_name_gap">5dp</dimen>
     <dimen name="card_badge">11sp</dimen>
     <dimen name="card_meta">12sp</dimen>
@@ -39,7 +39,7 @@
     <dimen name="hero_gap">10dp</dimen>
     <dimen name="section_gap">8dp</dimen>
     <dimen name="chips_gap">8dp</dimen>
-    <dimen name="card_margin">4dp</dimen>
+    <dimen name="card_margin">6dp</dimen>
     <dimen name="hero_title_gap">5dp</dimen>
     <dimen name="hero_sub_gap">2dp</dimen>
     <dimen name="hero_epg_gap">6dp</dimen>
@@ -54,4 +54,16 @@
     <dimen name="tab_height">44dp</dimen>
     <dimen name="tab_gap">10dp</dimen>
     <dimen name="tabs_margin_top">8dp</dimen>
+
+    <!-- TV 设计图：顶部信息行 / 左侧导航 / 底部状态栏 -->
+    <dimen name="tv_header_title">20sp</dimen>
+    <dimen name="tv_header_sub">12sp</dimen>
+    <dimen name="tv_search_icon">28dp</dimen>
+    <dimen name="tv_nav_text">16sp</dimen>
+    <dimen name="tv_nav_width">120dp</dimen>
+    <dimen name="tv_nav_capsule_w">104dp</dimen>
+    <dimen name="tv_nav_capsule_h">48dp</dimen>
+    <dimen name="tv_status_height">48dp</dimen>
+    <dimen name="tv_status_pad">24dp</dimen>
+    <dimen name="tv_status_text">12sp</dimen>
 </resources>

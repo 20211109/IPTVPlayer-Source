@@ -1,44 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 默认（手机）尺寸：更克制的留白与更清晰的字号层级 -->
-    <dimen name="page_padding">18dp</dimen>
-    <dimen name="page_padding_top">18dp</dimen>
-    <dimen name="hero_height">136dp</dimen>
-    <dimen name="hero_title">21sp</dimen>
-    <dimen name="hero_sub">12sp</dimen>
+    <dimen name="page_padding">14dp</dimen>
+    <dimen name="page_padding_top">14dp</dimen>
+    <!-- 手机迷你播放条：设计图一条窄条，不再是四行大卡 -->
+    <dimen name="hero_height">64dp</dimen>
+    <dimen name="hero_title">16sp</dimen>
+    <dimen name="hero_sub">11sp</dimen>
     <!-- 「正在直播」标签：手机窄屏收紧，避免挤占频道名 -->
     <dimen name="hero_badge_text">9sp</dimen>
     <dimen name="hero_badge_pad_h">6dp</dimen>
     <dimen name="hero_badge_gap">6dp</dimen>
-    <dimen name="section_title">18sp</dimen>
-    <dimen name="card_height">104dp</dimen>
+    <dimen name="section_title">15sp</dimen>
+    <dimen name="card_height">68dp</dimen>
     <dimen name="card_logo_size">44dp</dimen>
     <dimen name="card_padding">8dp</dimen>
     <dimen name="card_padding_h">8dp</dimen>
     <!-- 名称：autosize 在 [card_name_min, card_name] 之间自动挑字号，长名不被截断 -->
     <dimen name="card_name">15sp</dimen>
-    <dimen name="card_name_min">9sp</dimen>
+    <dimen name="card_name_min">11sp</dimen>
     <dimen name="card_name_gap">5dp</dimen>
     <dimen name="card_badge">9sp</dimen>
-    <dimen name="card_meta">12sp</dimen>
-    <dimen name="chip_height">38dp</dimen>
-    <dimen name="chip_text">13sp</dimen>
+    <dimen name="card_meta">11sp</dimen>
+    <dimen name="chip_height">32dp</dimen>
+    <dimen name="chip_text">11sp</dimen>
+    <!-- 手机分组标签：5 个胶囊正好铺满一行（5*60+4*6=324dp） -->
+    <dimen name="chip_width">60dp</dimen>
     <dimen name="card_radius">20dp</dimen>
     <dimen name="stats_text">11sp</dimen>
     <dimen name="epg_next_text">11sp</dimen>
-    <dimen name="hero_logo">68dp</dimen>
-    <dimen name="brand_name_text">26sp</dimen>
+    <dimen name="hero_logo">44dp</dimen>
+    <dimen name="brand_name_text">24sp</dimen>
     <dimen name="top_button_text">14sp</dimen>
 
     <!-- 纵向节奏：抽成 dimen 后，各屏幕尺寸可独立压缩，
          保证「频道网格至少露出三行」而不用改布局结构 -->
     <dimen name="header_gap">4dp</dimen>
-    <dimen name="hero_gap">16dp</dimen>
-    <dimen name="section_gap">12dp</dimen>
-    <dimen name="chips_gap">12dp</dimen>
-    <dimen name="card_margin">6dp</dimen>
+    <dimen name="hero_gap">8dp</dimen>
+    <dimen name="section_gap">8dp</dimen>
+    <dimen name="chips_gap">8dp</dimen>
+    <dimen name="card_margin">4dp</dimen>
     <dimen name="hero_title_gap">8dp</dimen>
-    <dimen name="hero_sub_gap">4dp</dimen>
+    <dimen name="hero_sub_gap">2dp</dimen>
     <dimen name="hero_epg_gap">10dp</dimen>
     <dimen name="hero_next_gap">3dp</dimen>
 
@@ -57,7 +60,23 @@
     <dimen name="tab_gap">6dp</dimen>
     <dimen name="tabs_margin_top">20dp</dimen>
 
+    <!-- 手机端顶部「直播」标题 -->
+    <dimen name="page_title_text">22sp</dimen>
+    <dimen name="page_title_gap">8dp</dimen>
+
     <!-- 1.89 导航占用的空间：手机底部条 / 电视左侧条 -->
     <dimen name="phone_nav_height">56dp</dimen>
     <dimen name="tv_nav_width">120dp</dimen>
+    <!-- TV 左侧导航胶囊：四项同尺寸 -->
+    <dimen name="tv_nav_capsule_w">104dp</dimen>
+    <dimen name="tv_nav_capsule_h">48dp</dimen>
+
+    <!-- TV 布局：顶部信息行 / 左侧导航 / 底部状态栏（手机手动切 TV 时同样生效） -->
+    <dimen name="tv_header_title">20sp</dimen>
+    <dimen name="tv_header_sub">12sp</dimen>
+    <dimen name="tv_search_icon">28dp</dimen>
+    <dimen name="tv_nav_text">16sp</dimen>
+    <dimen name="tv_status_height">48dp</dimen>
+    <dimen name="tv_status_pad">24dp</dimen>
+    <dimen name="tv_status_text">12sp</dimen>
 </resources>

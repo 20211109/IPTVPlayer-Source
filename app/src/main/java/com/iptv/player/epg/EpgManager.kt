@@ -86,6 +86,33 @@ class EpgManager(context: Context) {
         return null
     }
 
+    /**
+     * 只从缓存读取「正在播放」整条节目（标题 + 开始时间），不发起网络请求。
+     * 频道卡片要显示「新闻30分 · 12:00」这种格式，只用标题缺少设计图里的时间。
+     */
+    fun peekNowProgram(channelName: String, tvgId: String): Program? {
+        val nowMs = System.currentTimeMillis()
+        for (key in candidateKeys(channelName, tvgId)) {
+            val hit = mem[key] ?: readCache(key) ?: continue
+            val (ts, value) = hit
+            if (nowMs - ts !in 0..CACHE_MS) continue
+            val now = value?.now
+            if (now != null && now.title.isNotBlank()) return now
+        }
+        if (isXmltvApi() && xmltvPrograms.isNotEmpty() && nowMs - xmltvFetchedAt in 0..CACHE_MS) {
+            val candidates = candidateKeys(channelName, tvgId).map { it.lowercase() }
+            val matched = candidates.firstNotNullOfOrNull { c ->
+                xmltvPrograms.keys.firstOrNull { it.equals(c, true) }
+            } ?: candidates.firstNotNullOfOrNull { c ->
+                xmltvPrograms.keys.firstOrNull { id ->
+                    id.startsWith(c) && (id.length == c.length || !id[c.length].isDigit())
+                }
+            } ?: return null
+            return xmltvPrograms[matched]?.lastOrNull { it.start <= nowMs && it.end > nowMs }
+        }
+        return null
+    }
+
     /** 接口变更或用户手动刷新时清空缓存，避免看到旧接口的数据 */
     fun clearCache() {
         mem.clear()

@@ -1,32 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    浅色频道卡：92% 白 + 发丝描边；焦点时浅灰底 + 蓝色描边。
-    蓝色只在焦点出现，平时整页只有白、浅灰、深灰三种层次。
-
-    这里用 92% 而不是纯白：卡片叠在 bg_app_gradient 的径向底上，
-    会随所在位置透出一点底层明暗（约 2 个色阶），边缘看起来是「玻璃片」而不是「纸片」。
-    再低就会显脏（白卡发灰、台标彩色块边缘泛色），92% 是这套浅色方案能压到的下限。
+    TV 设计图焦点规范：3px #F5F5F7 描边（1080p 下 3px ≈ 1.5dp）。
+    平时只有 1dp 极淡描边，焦点出现时白框 + 4% 放大（animator），
+    遥控器一眼就能看出停在哪一格。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
+            <!-- 焦点只加白描边，底色保持深色，否则白字会融进白底看不见 -->
             <solid android:color="#FF2C2C2E" />
-            <corners android:radius="16dp" />
-            <stroke android:width="1.5dp" android:color="#FFE84643" />
+            <corners android:radius="12dp" />
+            <stroke android:width="2dp" android:color="#FFF5F5F7" />
         </shape>
     </item>
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
             <solid android:color="#FF3A3A3C" />
-            <corners android:radius="16dp" />
-            <stroke android:width="1dp" android:color="#FFE84643" />
+            <corners android:radius="12dp" />
+            <stroke android:width="2dp" android:color="#FFF5F5F7" />
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
             <solid android:color="#FF1C1C1E" />
-            <corners android:radius="16dp" />
-            <stroke android:width="1dp" android:color="#26D1D1D6" />
+            <corners android:radius="12dp" />
+            <stroke android:width="1dp" android:color="#12D1D1D6" />
         </shape>
     </item>
 </selector>

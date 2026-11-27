@@ -16,6 +16,68 @@
         android:paddingEnd="@dimen/page_padding"
         android:paddingTop="@dimen/page_padding_top">
 
+        <!-- 手机端顶部标题：设计图左上角的「直播」两字；TV 布局不需要 -->
+        <TextView
+            android:id="@+id/tvPageTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/page_title_gap"
+            android:text="@string/nav_live"
+            android:textSize="@dimen/page_title_text"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+
+        <!-- TV 顶部信息行：设计图「直播频道 151个频道 … 20:41 🔍」，手机端隐藏 -->
+        <LinearLayout
+            android:id="@+id/headerRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/channel_list_title"
+                android:textSize="@dimen/tv_header_title"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:id="@+id/tvHeaderCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text=""
+                android:textSize="@dimen/tv_header_sub"
+                android:textColor="@color/text_secondary" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/tvClock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="@dimen/tv_header_sub"
+                android:textColor="@color/text_secondary" />
+
+            <ImageView
+                android:id="@+id/btnSearchIcon"
+                android:layout_width="@dimen/tv_search_icon"
+                android:layout_height="@dimen/tv_search_icon"
+                android:layout_marginStart="16dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="@string/search_hint"
+                android:src="@drawable/ic_search" />
+        </LinearLayout>
+
         <!-- 搜索栏：按频道名 / 编号 / 当前节目名过滤，手机常驻、TV 由顶部搜索键唤出 -->
         <LinearLayout
             android:id="@+id/searchBar"
@@ -26,14 +88,21 @@
             android:background="@drawable/bg_input"
             android:paddingStart="12dp"
             android:paddingEnd="6dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_marginBottom="@dimen/section_gap">
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:layout_marginBottom="@dimen/hero_gap">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_search"
+                android:contentDescription="@string/search_hint" />
 
             <EditText
                 android:id="@+id/etSearch"
                 android:layout_width="0dp"
-                android:layout_height="40dp"
+                android:layout_height="34dp"
                 android:layout_weight="1"
                 android:background="@null"
                 android:hint="@string/search_hint"
@@ -146,14 +215,14 @@
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp">
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
 
                 <FrameLayout
                     android:layout_width="@dimen/hero_logo"
                     android:layout_height="@dimen/hero_logo"
                     android:background="@drawable/bg_logo_placeholder"
-                    android:layout_marginEnd="16dp">
+                    android:layout_marginEnd="12dp">
 
                     <ImageView
                         android:id="@+id/ivHeroLogo"
@@ -203,10 +272,10 @@
                             android:paddingEnd="@dimen/hero_badge_pad_h"
                             android:paddingTop="3dp"
                             android:paddingBottom="3dp"
-                            android:text="@string/hero_badge"
-                            android:textSize="@dimen/hero_badge_text"
-                            android:textColor="@color/text_secondary"
-                            android:maxLines="1" />
+                    android:text="@string/hero_badge"
+                    android:textSize="@dimen/hero_badge_text"
+                    android:textColor="#FFFFFFFF"
+                    android:maxLines="1" />
                     </LinearLayout>
 
                     <TextView
@@ -226,7 +295,8 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="@dimen/hero_epg_gap">
+                        android:layout_marginTop="@dimen/hero_epg_gap"
+                        android:visibility="gone">
 
                         <ImageView
                             android:layout_width="14dp"
@@ -280,13 +350,31 @@
 
         <!-- 焦点频道与频道列表之间的分隔线，让两个区块层次更清楚 -->
         <View
+            android:id="@+id/heroDivider"
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:background="@color/divider"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="4dp"
+            android:visibility="gone" />
+
+        <!-- 分类胶囊：设计图要求标签紧随搜索/迷你条，放在「全部频道」标题上方 -->
+        <HorizontalScrollView
+            android:id="@+id/groupScroller"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:layout_marginBottom="@dimen/chips_gap">
+
+            <LinearLayout
+                android:id="@+id/groupContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
 
         <!-- 分区标题 + 次级入口 -->
         <LinearLayout
+            android:id="@+id/sectionRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -312,20 +400,6 @@
 
         <!-- 三个入口已移到顶部标签行，这里只留分区标题和频道数 -->
         </LinearLayout>
-
-        <HorizontalScrollView
-            android:id="@+id/groupScroller"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:layout_marginBottom="@dimen/chips_gap">
-
-            <LinearLayout
-                android:id="@+id/groupContainer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
 
         <!-- 频道网格 -->
         <FrameLayout
@@ -608,75 +682,216 @@
 
         <Button
             android:id="@+id/navLive"
-            style="@style/NavButton"
+            style="@style/NavButtonPhone"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            app:icon="@drawable/ic_nav_live"
             android:text="@string/nav_live" />
 
         <Button
             android:id="@+id/navFavorite"
-            style="@style/NavButton"
+            style="@style/NavButtonPhone"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            app:icon="@drawable/ic_nav_favorite"
             android:text="@string/nav_favorite" />
 
         <Button
             android:id="@+id/navSource"
-            style="@style/NavButton"
+            style="@style/NavButtonPhone"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            app:icon="@drawable/ic_nav_source"
             android:text="@string/btn_config" />
 
         <Button
             android:id="@+id/navMine"
-            style="@style/NavButton"
+            style="@style/NavButtonPhone"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            app:icon="@drawable/ic_nav_mine"
             android:text="@string/nav_mine" />
     </LinearLayout>
 
     <!-- ============ 电视左侧导航：与手机同一组入口，遥控器上下焦点 ============ -->
     <LinearLayout
         android:id="@+id/tvNav"
-        android:layout_width="120dp"
+        android:layout_width="@dimen/tv_nav_width"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:orientation="vertical"
+        android:gravity="center_horizontal"
         android:paddingTop="@dimen/page_padding_top"
         android:background="@drawable/bg_bottom_scrim"
         android:visibility="gone">
 
+        <!-- 设计图左侧栏顶部 logo：圆角方块 ▶ + 「直播」 -->
+        <LinearLayout
+            android:layout_width="@dimen/tv_nav_capsule_w"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="@drawable/bg_logo_placeholder">
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_nav_live"
+                    android:contentDescription="@string/nav_live" />
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="@string/nav_live"
+                android:textSize="@dimen/tv_nav_text"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/tvNavLive"
-            style="@style/NavButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
+            style="@style/NavButtonTv"
+            app:icon="@drawable/ic_nav_live"
             android:text="@string/nav_live" />
 
         <Button
             android:id="@+id/tvNavFavorite"
-            style="@style/NavButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
+            style="@style/NavButtonTv"
+            app:icon="@drawable/ic_nav_favorite"
             android:text="@string/nav_favorite" />
 
         <Button
             android:id="@+id/tvNavSource"
-            style="@style/NavButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
+            style="@style/NavButtonTv"
+            app:icon="@drawable/ic_nav_source"
             android:text="@string/btn_config" />
 
         <Button
             android:id="@+id/tvNavMine"
-            style="@style/NavButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
+            style="@style/NavButtonTv"
+            app:icon="@drawable/ic_nav_mine"
             android:text="@string/nav_mine" />
+    </LinearLayout>
+
+    <!-- ============ TV 底部状态栏：设计图「焦点 CCTV2 … · 7条线路」+ 遥控器按键提示 ============ -->
+    <LinearLayout
+        android:id="@+id/tvStatusBar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/tv_status_height"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/tv_status_pad"
+        android:paddingEnd="@dimen/tv_status_pad"
+        android:background="@drawable/bg_bottom_scrim"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/tv_status_focus"
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:id="@+id/tvStatusFocus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text=""
+            android:textSize="@dimen/tv_status_text"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/tvStatusProgram"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text=""
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/tvStatusLines"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text=""
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary"
+            android:maxLines="1" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_key_hint"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="@string/tv_hint_ok"
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_key_hint"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="@string/tv_hint_move"
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_key_hint"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="@string/tv_hint_group"
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_key_hint"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:text="@string/tv_hint_back"
+            android:textSize="@dimen/tv_status_text"
+            android:textColor="@color/text_secondary" />
     </LinearLayout>
 
 </FrameLayout>

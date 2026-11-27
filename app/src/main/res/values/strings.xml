@@ -19,7 +19,7 @@
     <string name="back">返回</string>
     <string name="stats_placeholder">线路 - · 缓冲 0 · 丢帧 0</string>
     <string name="group_all">全部</string>
-    <string name="hero_badge">正在直播</string>
+    <string name="hero_badge">直播中</string>
     <string name="hero_playing">正在播放</string>
     <string name="hero_hint">选中频道后按确认键播放</string>
     <string name="hero_epg_empty">暂无节目单（可在「直播源」自定义接口）</string>
@@ -27,7 +27,7 @@
     <string name="source_count">条线路</string>
     <string name="not_tested">未测速</string>
     <string name="no_source">无可用源</string>
-    <string name="live_badge">直播</string>
+    <string name="live_badge">直播中</string>
 
     <!-- 直播页频道选择浮层（遥控器长按确认键呼出） -->
     <string name="picker_title">选择频道</string>
@@ -147,4 +147,11 @@
     <string name="favorite_added">已收藏 %1$s</string>
     <string name="favorite_removed">已取消收藏 %1$s</string>
     <string name="favorite_empty">还没有收藏频道\n在频道卡片右上角点星标即可收藏</string>
+
+    <!-- TV 端设计图：底部状态栏与遥控器按键提示 -->
+    <string name="tv_status_focus">焦点</string>
+    <string name="tv_hint_ok">OK 播放</string>
+    <string name="tv_hint_move">↑↓ 选择频道</string>
+    <string name="tv_hint_group">←→ 切换分类</string>
+    <string name="tv_hint_back">返回 退出</string>
 </resources>

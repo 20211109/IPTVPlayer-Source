@@ -100,12 +100,15 @@
     <style name="MineRowButton" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:minHeight">52dp</item>
+        <item name="android:minHeight">60dp</item>
         <item name="android:gravity">start|center_vertical</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">none</item>
+        <item name="android:includeFontPadding">false</item>
         <item name="android:textColor">@color/text_primary</item>
-        <item name="android:textSize">16sp</item>
-        <item name="android:paddingStart">12dp</item>
-        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
         <item name="android:backgroundTint">@null</item>
         <item name="android:background">@drawable/bg_setting_focus</item>
         <item name="android:stateListAnimator">@animator/focus_scale</item>
@@ -119,6 +122,40 @@
         <item name="android:textColor">#FFFFFFFF</item>
         <item name="android:backgroundTint">@null</item>
         <item name="android:background">@drawable/bg_nav_item</item>
+        <item name="android:stateListAnimator">@animator/focus_scale</item>
+    </style>
+
+    <!-- 手机底部导航：MaterialButton 默认带 6dp 上下 inset，文字会偏上；清掉并强制居中 -->
+    <style name="NavButtonPhone" parent="NavButton">
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingBottom">3dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">11sp</item>
+        <item name="iconGravity">top</item>
+        <item name="iconSize">20dp</item>
+        <item name="iconPadding">2dp</item>
+        <item name="iconTint">@color/nav_icon_tint</item>
+    </style>
+
+    <!-- TV 左侧导航：设计图同样大小的胶囊（宽高固定、圆角、焦点白描边） -->
+    <style name="NavButtonTv" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:layout_width">@dimen/tv_nav_capsule_w</item>
+        <item name="android:layout_height">@dimen/tv_nav_capsule_h</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:textSize">@dimen/tv_nav_text</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="iconSize">20dp</item>
+        <item name="iconTint">@color/nav_icon_tint</item>
+        <item name="iconPadding">8dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:background">@drawable/bg_nav_capsule</item>
         <item name="android:stateListAnimator">@animator/focus_scale</item>
     </style>
 

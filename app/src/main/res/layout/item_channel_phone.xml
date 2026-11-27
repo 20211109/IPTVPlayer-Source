@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     手机端频道行（布局方案 B：列表优先）。
-    一行固定「编号 / 台标 / 频道名 / 当前节目 / 收藏星标」，
-    纵向扫读，单屏能看到更多频道；星标与整行点击互不冲突。
-    ID 与 item_channel.xml 保持一致，ChannelAdapter 可共用同一套绑定逻辑。
+    设计图一行只有「台标方块 / 频道名 / 当前节目 / 收藏星标」：
+    台标方块本身就是编号（CCTV1→1），不再额外叠一个红色编号块。
+    ID 与 item_channel.xml 保持一致，ChannelAdapter 共用同一套绑定逻辑。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -23,25 +23,12 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingStart="10dp"
-        android:paddingEnd="8dp">
+        android:paddingEnd="10dp">
 
-        <!-- 编号：按设计图做成彩色方块 -->
-        <TextView
-            android:id="@+id/tvNumber"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:background="@drawable/bg_number"
-            android:text="1"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:textColor="#FFFFFFFF" />
-
-        <!-- 台标 -->
+        <!-- 台标方块：本地绘制图已按频道名写上 1/2/湖南/凤凰，直接作为设计图里的彩色块 -->
         <FrameLayout
             android:layout_width="@dimen/card_logo_size"
             android:layout_height="@dimen/card_logo_size"
-            android:layout_marginStart="10dp"
             android:background="@drawable/bg_logo_placeholder">
 
             <TextView
@@ -60,17 +47,18 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:scaleType="fitCenter"
-                android:padding="3dp"
+                android:padding="2dp"
                 android:contentDescription="台标" />
         </FrameLayout>
 
-        <!-- 名称 + 当前节目 + 直播标识 -->
+        <!-- 频道名 + 当前正在播放的节目（来自 EPG 缓存，没缓存时回退到分组名） -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:orientation="vertical">
+            android:layout_marginStart="12dp"
+            android:orientation="vertical"
+            android:minWidth="0dp">
 
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/tvName"
@@ -91,7 +79,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="2dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
@@ -101,7 +89,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:minWidth="0dp"
-                    android:text="综合频道"
+                    android:text="新闻30分 · 12:00"
                     android:textSize="@dimen/card_meta"
                     android:textColor="@color/text_secondary"
                     android:maxLines="1"
@@ -114,24 +102,32 @@
                     android:layout_marginStart="4dp"
                     android:gravity="center"
                     android:background="@drawable/bg_badge_live"
-                    android:text="直播中"
+                    android:text="@string/live_badge"
                     android:textSize="@dimen/card_badge"
-                    android:textColor="@color/live"
+                    android:textColor="#FFFFFFFF"
                     android:textStyle="bold"
                     android:maxLines="1" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 收藏星标：独立于整行点击，TV 端由遥控器聚焦后按确认 -->
+        <!-- 收藏星标：设计图是细线小星，不再抢频道名位置 -->
         <ImageView
             android:id="@+id/ivStar"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:layout_marginStart="6dp"
-            android:padding="4dp"
+            android:padding="2dp"
             android:src="@drawable/ic_star_off"
             android:contentDescription="@string/favorite_add"
             android:focusable="true"
             android:clickable="true" />
     </LinearLayout>
+
+    <!-- 编号仍由适配器写入，供搜索「编号」功能使用；设计图上由台标方块显示，故隐藏 -->
+    <TextView
+        android:id="@+id/tvNumber"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:text="1"
+        android:visibility="gone" />
 </FrameLayout>

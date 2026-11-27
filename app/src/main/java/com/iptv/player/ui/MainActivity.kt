@@ -20,6 +20,8 @@ import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import android.widget.Button
@@ -58,6 +60,7 @@ import com.iptv.player.update.UpdateInfo
 import com.iptv.player.update.UpdateManager
 import com.iptv.player.util.LogoHelper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -95,6 +98,13 @@ class MainActivity : AppCompatActivity() {
     /** 焦点卡 EPG：防抖 + 序号校验，避免快速滑动时旧频道结果覆盖新频道 */
     private var heroEpgRunnable: Runnable? = null
     private var heroEpgSeq = 0
+    /**
+     * TV 频道卡片「当前节目」后台预加载任务。
+     * 列表一次可能有上百个频道，但卡片只从缓存读节目名（不逐个发网络请求），
+     * 所以这里在后台按频道名批量拉取并写入 EPG 缓存，加载完一格刷新一格。
+     * 切分组/搜索/退出时取消旧任务，避免旧列表的结果错刷到新列表。
+     */
+    private var epgPreloadJob: kotlinx.coroutines.Job? = null
     private var lastHeroScrollMs = 0L
     private var heroTouchX = 0f
     private var heroTouchY = 0f
@@ -162,6 +172,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSearch: EditText
     private lateinit var btnSearchClear: Button
     private lateinit var btnMiniPlay: Button
+    /** TV 设计图新增视图：顶部信息行、搜索图标、底部状态栏 */
+    private lateinit var headerRow: View
+    private lateinit var tvHeaderCount: TextView
+    private lateinit var tvClock: TextView
+    private lateinit var btnSearchIcon: ImageView
+    private lateinit var tvStatusBar: View
+    private lateinit var tvStatusFocus: TextView
+    private lateinit var tvStatusProgram: TextView
+    private lateinit var tvStatusLines: TextView
+    private lateinit var heroDivider: View
+    private lateinit var sectionRow: View
     private lateinit var recyclerView: RecyclerView
     private lateinit var tvEmpty: TextView
     private lateinit var progressBar: ProgressBar
@@ -263,6 +284,7 @@ class MainActivity : AppCompatActivity() {
         HttpCompat.allowInsecureTls = playSettings.insecureTls
 
         pageList = findViewById(R.id.pageList)
+        measureStatusBar()
         pagePlayer = findViewById(R.id.pagePlayer)
         pageMine = findViewById(R.id.pageMine)
         phoneNav = findViewById(R.id.phoneNav)
@@ -270,6 +292,16 @@ class MainActivity : AppCompatActivity() {
         etSearch = findViewById(R.id.etSearch)
         btnSearchClear = findViewById(R.id.btnSearchClear)
         btnMiniPlay = findViewById(R.id.btnMiniPlay)
+        headerRow = findViewById(R.id.headerRow)
+        tvHeaderCount = findViewById(R.id.tvHeaderCount)
+        tvClock = findViewById(R.id.tvClock)
+        btnSearchIcon = findViewById(R.id.btnSearchIcon)
+        tvStatusBar = findViewById(R.id.tvStatusBar)
+        tvStatusFocus = findViewById(R.id.tvStatusFocus)
+        tvStatusProgram = findViewById(R.id.tvStatusProgram)
+        tvStatusLines = findViewById(R.id.tvStatusLines)
+        heroDivider = findViewById(R.id.heroDivider)
+        sectionRow = findViewById(R.id.sectionRow)
         recyclerView = findViewById(R.id.recyclerView)
         tvEmpty = findViewById(R.id.tvEmpty)
         progressBar = findViewById(R.id.progressBar)
@@ -322,7 +354,13 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
-                    if (newState == RecyclerView.SCROLL_STATE_IDLE) updateHeroFromFirstVisible()
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        updateHeroFromFirstVisible()
+                        // 手机只预取首屏附近的 EPG：滚到哪补到哪，不一次性打上百个请求
+                        val first = (rv.layoutManager as? GridLayoutManager)?.findFirstVisibleItemPosition()
+                            ?: RecyclerView.NO_POSITION
+                        if (first != RecyclerView.NO_POSITION) preloadCardEpg(first, 20)
+                    }
                 }
             })
 
@@ -418,6 +456,9 @@ class MainActivity : AppCompatActivity() {
 
         // 订阅源定时刷新：按设置档位排期，默认关闭时什么都不做
         scheduleSourceRefresh()
+
+        // TV 右上角时钟：进入界面先刷一次，之后每分钟更新
+        if (isTvUi()) uiHandler.postDelayed(clockRunnable, 60_000L)
     }
 
     // ==================== 1.89 导航 / 收藏 / 搜索 / 布局切换 ====================
@@ -453,6 +494,16 @@ class MainActivity : AppCompatActivity() {
         btnSearchClear.setOnClickListener {
             etSearch.setText("")
             etSearch.clearFocus()
+            // TV：清除搜索后收起搜索栏，把焦点还给右上角图标，避免停在隐藏控件上
+            if (isTvUi()) {
+                findViewById<View>(R.id.searchBar).visibility = View.GONE
+                btnSearchIcon.requestFocus()
+            }
+        }
+        // TV 搜索入口：右上角放大镜 → 展开搜索栏并聚焦输入框
+        btnSearchIcon.setOnClickListener {
+            findViewById<View>(R.id.searchBar).visibility = View.VISIBLE
+            etSearch.requestFocus()
         }
         etSearch.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -485,31 +536,77 @@ class MainActivity : AppCompatActivity() {
         applyLayoutMode()
     }
 
+    /** 真实状态栏高度：手机列表页要据此让开时间/信号，写死 dp 在不同机型上必然压字 */
+    private var statusBarInsetTop = 0
+
+    /**
+     * 读取系统状态栏高度。
+     * 手机端列表页顶部是搜索框，若只留 18dp 会被状态栏时间盖住（用户实测）；
+     * 用系统真实值而不是固定 dp，刘海屏/高状态栏机型同样正确。
+     * 播放页走另一套全屏逻辑，不受这里影响。
+     */
+    private fun measureStatusBar() {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        statusBarInsetTop = if (id > 0) resources.getDimensionPixelSize(id) else 0
+    }
+
     /** 按布局偏好显隐两套导航、决定搜索栏位置、重建网格列数 */
     private fun applyLayoutMode() {
         val tv = isTvUi()
         phoneNav.visibility = if (tv) View.GONE else View.VISIBLE
         tvNav.visibility = if (tv) View.VISIBLE else View.GONE
-        // 电视布局顶部保留搜索栏（遥控器可聚焦输入），手机布局同样常驻
-        findViewById<View>(R.id.searchBar).visibility = View.VISIBLE
+        // TV 设计图：取消迷你播放条与分区标题行，改由顶部信息行 + 底部状态栏承载信息；
+        // 手机的 hero 焦点卡、搜索框完全不动。
+        findViewById<View>(R.id.tvPageTitle).visibility = if (tv) View.GONE else View.VISIBLE
+        headerRow.visibility = if (tv) View.VISIBLE else View.GONE
+        tvStatusBar.visibility = if (tv && pageList.visibility == View.VISIBLE &&
+            pageMine.visibility != View.VISIBLE) View.VISIBLE else View.GONE
+        heroCard.visibility = if (tv) View.GONE else View.VISIBLE
+        heroDivider.visibility = if (tv) View.GONE else View.VISIBLE
+        sectionRow.visibility = if (tv) View.GONE else View.VISIBLE
+        // TV：搜索框默认收起，点右上角放大镜再展开；手机：搜索框常驻
+        findViewById<View>(R.id.searchBar).visibility = if (tv) View.GONE else View.VISIBLE
         recyclerView.layoutManager = GridLayoutManager(this, if (tv) 5 else 1)
         adapter.submitList(filteredChannels, phoneLayout = !tv)
         updateNavSelection()
-        // 给侧边/底部导航让出空间：保留原有 page_padding，只额外加导航宽度
+        updateClock()
+        // 给侧边/底部导航让出空间：保留原有 page_padding，只额外加导航宽度。
+        // 顶部额外叠加真实状态栏高度（仅手机布局，TV 无状态栏）。
         val base = resources.getDimensionPixelSize(R.dimen.page_padding)
+        val topPad = resources.getDimensionPixelSize(R.dimen.page_padding_top) +
+            if (tv) 0 else statusBarInsetTop
+        val statusH = if (tv) resources.getDimensionPixelSize(R.dimen.tv_status_height) else 0
         pageList.setPadding(
             base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) else 0,
-            pageList.paddingTop,
+            topPad,
             base,
-            base + if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)
+            base + (if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)) + statusH
         )
         // 「我的」页同样铺满根布局，必须一起让开，否则 TV 左侧导航会压住设置/关于按钮
         pageMine.setPadding(
             base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) else 0,
-            resources.getDimensionPixelSize(R.dimen.page_padding_top),
+            resources.getDimensionPixelSize(R.dimen.page_padding_top) +
+                if (tv) 0 else statusBarInsetTop,
             base,
-            base + if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)
+            base + (if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)) + statusH
         )
+    }
+
+    /** 布局切换前记录正在看的频道，返回播放页时按设计图回到原来的频道位置 */
+    private var channelBeforePlay: Channel? = null
+    /** TV 右上角时钟：每分钟刷新一次 */
+    private val clockRunnable = object : Runnable {
+        override fun run() {
+            updateClock()
+            uiHandler.postDelayed(this, 60_000L)
+        }
+    }
+
+    /** TV 右上角系统时间：设计图右上角「20:41」，手机端不显示 */
+    private fun updateClock() {
+        if (!isTvUi()) return
+        val fmt = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
+        tvClock.text = fmt.format(java.util.Date())
     }
 
     private fun updateNavSelection() {
@@ -532,11 +629,13 @@ class MainActivity : AppCompatActivity() {
         applyFilter("ALL")
         recyclerView.scrollToPosition(0)
         updateNavSelection()
+        applyLayoutMode()   // 切回直播页时恢复 TV 底部状态栏、收起搜索栏
     }
 
     private fun showMinePage() {
         pageList.visibility = View.GONE
         pageMine.visibility = View.VISIBLE
+        tvStatusBar.visibility = View.GONE   // 设计图底部状态栏属于直播频道页
         findViewById<TextView>(R.id.tvLayoutMode).text = uiLayoutPrefs.modeLabel
     }
 
@@ -560,9 +659,17 @@ class MainActivity : AppCompatActivity() {
         if (listTab == ListTab.FAVORITE) applyFilter(currentGroup)
     }
 
-    /** 当前节目：优先用已缓存的 EPG 标题；没有就退回分组名 */
+    /** 当前节目：优先用已缓存的 EPG（标题 + 开始时间）；没有就退回分组名 */
     private fun cachedProgram(channel: Channel): String = try {
-        epgManager.peekNowTitle(channel.name, channel.tvgId) ?: channel.group
+        val program = epgManager.peekNowProgram(channel.name, channel.tvgId)
+        if (program != null && program.title.isNotBlank()) {
+            val fmt = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
+                timeZone = TimeZone.getTimeZone("Asia/Shanghai")
+            }
+            "${program.title} · ${fmt.format(java.util.Date(program.start))}"
+        } else {
+            channel.group
+        }
     } catch (e: Exception) {
         channel.group
     }
@@ -583,6 +690,8 @@ class MainActivity : AppCompatActivity() {
      * （最多压到一张频道卡的高度）。只压不涨，所以不会把布局越改越奇怪。
      */
     private fun ensureThreeRowsVisible() {
+        // TV 设计图已经按 5×4 网格压缩过尺寸，且焦点大卡已取消，不再需要动态压卡
+        if (isTvUi()) return
         val lp = heroCard.layoutParams ?: return
         if (heroBaseHeight == 0) heroBaseHeight = lp.height
         if (lp.height != heroBaseHeight) {
@@ -594,7 +703,10 @@ class MainActivity : AppCompatActivity() {
             val cardH = resources.getDimensionPixelSize(R.dimen.card_height)
             val margin = resources.getDimensionPixelSize(R.dimen.card_margin)
             val rowH = cardH + margin * 2
-            val need = rowH * 3 - recyclerView.height
+            // 手机端屏幕 taller，目标 5 行（用户要求一屏至少看到 5 个频道）；
+            // TV 沿用原来的 3 行预算，避免动到电视端已经调好的布局。
+            val targetRows = if (isTvUi()) 3 else 5
+            val need = rowH * targetRows - recyclerView.height
             if (need <= 0) return@post
             val cur = heroCard.layoutParams.height
             val newH = (cur - need).coerceAtLeast(cardH)
@@ -1050,8 +1162,11 @@ class MainActivity : AppCompatActivity() {
                 textSize = resources.getDimension(R.dimen.chip_text) /
                         resources.displayMetrics.scaledDensity
                 val density = resources.displayMetrics.density
+                // 手机端标签等宽（设计图要求），TV 保持按字宽自适应
+                val chipW = if (isTvUi()) LinearLayout.LayoutParams.WRAP_CONTENT
+                            else resources.getDimensionPixelSize(R.dimen.chip_width)
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    chipW,
                     resources.getDimensionPixelSize(R.dimen.chip_height)
                 ).apply { setMargins(0, 0, (6 * density + 0.5f).toInt(), 0) }
                 setPadding((10 * density + 0.5f).toInt(), 0, (10 * density + 0.5f).toInt(), 0)
@@ -1099,6 +1214,7 @@ class MainActivity : AppCompatActivity() {
         }
         adapter.submitList(filteredChannels, phoneLayout = !isTvUi())
         tvChannelCount.text = "${filteredChannels.size} ${getString(R.string.channel_count)}"
+        tvHeaderCount.text = "${filteredChannels.size} ${getString(R.string.channel_count)}"
         tvEmpty.text = getString(
             if (listTab == ListTab.FAVORITE && searchQuery.isBlank())
                 R.string.favorite_empty else R.string.search_empty
@@ -1110,6 +1226,46 @@ class MainActivity : AppCompatActivity() {
         // Hero 默认展示第一个频道
         focusedChannel = filteredChannels.firstOrNull()
         focusedChannel?.let { updateHero(it) }
+
+        // 手机、TV 频道卡片都要显示「当前播放内容」：后台按频道名批量取 EPG 写入缓存，
+        // 加载完一格刷新一格（卡片只从缓存读，滑动时零网络开销）
+        preloadCardEpg(count = if (isTvUi()) -1 else 40)
+    }
+
+    /**
+     * 给频道卡片批量预加载「正在播放」节目名。
+     *
+     * 设计要点：
+     *  - 手机、TV 都要显示当前节目；手机一次只预取一屏附近，避免上百个频道同时打接口；
+     *  - 限制并发 4，避免上百个频道同时打接口把老盒子/接口拖垮；
+     *  - 命中缓存的频道 getNowNext 会立即返回，只有真正缺数据的才发请求；
+     *  - 每完成一个就按频道引用回查位置刷新对应卡片，不整体重排、不抢焦点；
+     *  - 切分组/搜索/退出时取消旧任务，旧结果不会错刷到新列表。
+     */
+    private fun preloadCardEpg(fromIndex: Int = 0, count: Int = -1) {
+        epgPreloadJob?.cancel()
+        val all = filteredChannels.toList()
+        if (all.isEmpty()) return
+        val from = fromIndex.coerceIn(0, all.size - 1)
+        val end = if (count < 0) all.size else (from + count).coerceAtMost(all.size)
+        val snapshot = all.subList(from, end).toList()
+        epgPreloadJob = lifecycleScope.launch {
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            withContext(Dispatchers.IO) {
+                snapshot.map { ch ->
+                    async(Dispatchers.IO) {
+                        gate.withPermit {
+                            epgManager.getNowNext(ch.name, ch.tvgId)
+                        }
+                        // 缓存已写入，回主线程刷新这一格；按引用找位置，列表变动时跳过
+                        withContext(Dispatchers.Main) {
+                            val idx = filteredChannels.indexOfFirst { it === ch }
+                            if (idx >= 0) adapter.notifyItemChanged(idx)
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
     }
 
     private fun updateChipSelected(btn: TextView, selected: Boolean) {
@@ -1140,8 +1296,13 @@ class MainActivity : AppCompatActivity() {
     private fun updateHero(channel: Channel) {
         focusedChannel = channel
         tvHeroTitle.text = channel.name
-        tvHeroSub.text = "${channel.group}  ·  ${channel.sources.size} ${getString(R.string.source_count)}"
+        // 手机迷你条只显示当前节目（设计图），不再显示「分组 · N条线路」
+        tvHeroSub.text = cachedProgram(channel)
         loadLogoInto(ivHeroLogo, channel)
+        // TV 底部状态栏：设计图「焦点 CCTV2 新闻30分 · 12:00 · 7条线路」
+        tvStatusFocus.text = channel.name
+        tvStatusProgram.text = cachedProgram(channel)
+        tvStatusLines.text = "${channel.sources.size} ${getString(R.string.source_count)}"
 
         // 先复位，防抖后异步加载节目单
         tvHeroEpg.text = getString(R.string.hero_playing)
@@ -1166,6 +1327,13 @@ class MainActivity : AppCompatActivity() {
             }
             val now = result?.now
             val next = result?.next
+            // 底部状态栏的节目信息跟随 EPG 实时刷新
+            if (now != null) {
+                val fmt = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
+                    timeZone = TimeZone.getTimeZone("Asia/Shanghai")
+                }
+                tvStatusProgram.text = "${now.title} · ${fmt.format(java.util.Date(now.start))}"
+            }
             if (now == null && next == null) {
                 tvHeroEpg.text = getString(R.string.hero_playing)
                 tvHeroEpgNext.text = getString(R.string.hero_epg_empty)
@@ -1304,6 +1472,9 @@ class MainActivity : AppCompatActivity() {
 
     /** 打开频道开始播放 */
     private fun openChannel(channel: Channel) {
+        // 设计图：返回键要回到「刚才看的那个频道」位置。记录进入播放前的焦点频道；
+        // 若是从播放页直接换台（此时列表不可见），保留第一次进入时的位置不动。
+        if (pageList.visibility == View.VISIBLE) channelBeforePlay = focusedChannel
         // 换台/重新起播前，先释放可能存在的兜底内核并把 Exo 视图恢复显示
         releaseVlcFallback()
         playerViewRef?.visibility = View.VISIBLE
@@ -2571,6 +2742,16 @@ class MainActivity : AppCompatActivity() {
         showSystemUi()
         // 刷新在后台静默就地更新了频道数据，回到列表正常刷新显示即可，无需重建
         applyFilter(currentGroup)
+        // 设计图：返回键回到「刚才看的那个频道」位置，而不是跳回列表第一个
+        val back = channelBeforePlay
+        if (back != null) {
+            val idx = filteredChannels.indexOfFirst { it.normalizedName() == back.normalizedName() }
+            if (idx >= 0) {
+                updateHero(filteredChannels[idx])
+                recyclerView.scrollToPosition(idx)
+            }
+            channelBeforePlay = null
+        }
         // 手机从横屏播放回到竖屏列表，可视高度变了，重新兜一次三行
         ensureThreeRowsVisible()
     }
@@ -2960,7 +3141,9 @@ class MainActivity : AppCompatActivity() {
         com.iptv.player.update.InstallResultReceiver.detach(this)
         uiHandler.removeCallbacks(overlayHideRunnable)
         uiHandler.removeCallbacks(pickerLongPressRunnable)
+        uiHandler.removeCallbacks(clockRunnable)
         heroEpgRunnable?.let { uiHandler.removeCallbacks(it) }
+        epgPreloadJob?.cancel()
         releaseVlcFallback()
         stallDetector?.release()
         stallDetector = null
