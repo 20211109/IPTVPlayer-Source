@@ -19,6 +19,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 发版前先校验 tag 与 versionName 是否一致。
+      # CI 用 tag 名写 version.json 的 version，而 App 端用 versionName 判断「是否有更新」，
+      # 两者不一致时：用户永远看到「已是最新」，或反复下载同一个包，且全程没有任何报错。
+      # 放在清理产物之前，校验失败可直接中止，不会先删掉上一次的 Artifact。
+      - name: Verify tag matches versionName
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${TAG_VERSION#V}"
+          APP_VERSION=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          APP_CODE=$(sed -n 's/.*versionCode *= *\([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
+          echo "tag=$TAG_VERSION versionName=${APP_VERSION:-?} versionCode=${APP_CODE:-?}"
+          if [ -z "$APP_VERSION" ]; then
+            echo "::error::未能从 app/build.gradle.kts 解析 versionName"
+            exit 1
+          fi
+          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
+            echo "::error::tag v$TAG_VERSION 与 versionName $APP_VERSION 不一致：请把 tag 改成 v$APP_VERSION，或同步修改 app/build.gradle.kts"
+            exit 1
+          fi
+          # version.json 会被本次发布整体覆盖：若远端已是更高版本，说明误推了旧 tag
+          PREV=$(curl -fsSL --max-time 8 \
+            "https://raw.githubusercontent.com/20211109/IPTVPlayer-Releases-New/main/version.json" \
+            | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' | head -1) || true
+          if [ -n "$PREV" ]; then
+            echo "远端已发布版本：$PREV"
+            HIGHER=$(printf '%s\n%s\n' "$PREV" "$APP_VERSION" | sort -V | tail -1)
+            if [ "$HIGHER" = "$PREV" ] && [ "$PREV" != "$APP_VERSION" ]; then
+              echo "::error::远端已发布 $PREV，高于本次 $APP_VERSION；发布会把 version.json 回退，请提高版本号后重新打 tag"
+              exit 1
+            fi
+          else
+            echo "未能读取远端 version.json（网络或无发布记录），跳过回退校验"
+          fi
+          echo "- 版本校验通过：v$APP_VERSION（versionCode $APP_CODE）" >> "$GITHUB_STEP_SUMMARY"
+
       # 每次构建先清理旧产物，只保留最新一次，避免免费账号 Artifact 配额被占满
       - name: 清理旧构建产物
         if: github.event_name != 'pull_request'

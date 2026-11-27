@@ -870,6 +870,36 @@ class PlayerManager(
     }
 
     /**
+     * 订阅源定时刷新后调用：把「正在播放的这一路」同步到最新数据。
+     *
+     * 判据很简单——看当前正在播的 URL 还在不在新列表里：
+     *  - 还在：说明这条线路没变，什么都不做。这是绝大多数情况，用户完全无感。
+     *  - 不在了：源站已经把这个 IP 换掉/淘汰了（这类聚合源由 iptv_finder_docker
+     *    定期扫描生成，失效 IP 会被剔除），继续守着旧地址只会一直重连、报 2004。
+     *    此时就地起播新数据里的线路，不退出播放页，画面重连一次即可恢复。
+     *
+     * @return true 表示确实换了线路（画面会重新连接一次）
+     */
+    fun resyncPlayingChannel(newChannel: Channel): Boolean {
+        val cur = currentChannel ?: return false
+        if (cur.normalizedName() != newChannel.normalizedName()) return false
+        if (newChannel.sources.isEmpty()) return false
+        val playingUrl = currentSource?.url
+        if (playingUrl != null) {
+            val newIdx = newChannel.sources.indexOfFirst { it.url == playingUrl }
+            if (newIdx >= 0) {
+                // 线路还在，只是顺序可能变了：只修正索引，绝不打断当前画面
+                currentSourceIndex = newIdx
+                currentSource = newChannel.sources[newIdx]
+                return false
+            }
+        }
+        // 当前地址已被新数据淘汰（聚合源定期扫描会剔除失效 IP）：
+        // 就地换到新线路，不退出播放页，画面重连一次即可恢复
+        playChannel(newChannel)
+        return true
+    }
+    /**
      * 手动换线：用户明确要求换一条线路时调用，无视「锁台」限制。
      * 用于自动换源仍找不到可用线路、或用户想主动避开当前卡顿线路的场景。
      */

@@ -92,6 +92,8 @@ class MainActivity : AppCompatActivity() {
     private var sourceRefreshCount = 0
     /** 刷新任务序号：档位变化/退出时递增，让进行中的旧任务结果作废 */
     private var sourceRefreshSeq = 0
+    /** 上一轮刷新的结果描述，显示在设置页，便于判断是否真的更新成功 */
+    private var sourceRefreshLastResult = "尚未刷新"
     /** 直播页上/下滑或遥控上/下键换台的防抖时间戳 */
     private var lastLiveSwitchMs = 0L
     /** 直播页长按确认键呼出的频道选择浮层 */
@@ -680,10 +682,7 @@ class MainActivity : AppCompatActivity() {
      * 全程不重建列表、不切分组、不刷适配器、不弹提示、不碰播放器，
      * 正在观看的这一路完全不被打扰，真正做到不知不觉。
      */
-    private fun applyRefreshedChannelsSilently() {
-        val sources = repo.getPlaylistSources().filter { it.enabled }
-        if (sources.isEmpty()) return
-        val fresh = M3uParser.merge(sources.map { M3uParser.parse(it.raw, it.url) })
+    private fun applyRefreshedChannelsSilently(fresh: List<Channel>) {
         if (fresh.isEmpty()) return
 
         // 用户手动设置过的台标要保留，不能被订阅源刷新冲掉
@@ -746,30 +745,73 @@ class MainActivity : AppCompatActivity() {
      */
     private fun performSourceRefresh(seq: Int) {
         val targets = repo.getPlaylistSources().filter { it.enabled && it.url.startsWith("http", true) }
-        if (targets.isEmpty()) return
+        if (targets.isEmpty()) {
+            sourceRefreshLastResult = "没有可刷新的在线源"
+            return
+        }
         lifecycleScope.launch {
-            var anyUpdated = false
+            var updated = 0
+            var failReason = ""
+            // 解析 1800+ 行的聚合源在主线程会明显卡顿，整段下载+解析都放在 IO
+            var fresh: List<Channel> = emptyList()
             withContext(Dispatchers.IO) {
                 for (s in targets) {
                     if (seq != sourceRefreshSeq) return@withContext
                     val result = PlaylistLoader.load(s.url, true)
-                    if (result.isFailure) continue
+                    if (result.isFailure) {
+                        if (failReason.isBlank()) {
+                            failReason = "下载失败：${result.exceptionOrNull()?.message ?: "网络异常"}"
+                        }
+                        continue
+                    }
                     val raw = result.getOrNull() ?: continue
                     // 解析不到频道视为失败，保留旧 raw，不用空内容覆盖缓存
-                    if (M3uParser.parse(raw, s.url).isEmpty()) continue
+                    if (M3uParser.parse(raw, s.url).isEmpty()) {
+                        if (failReason.isBlank()) failReason = "内容解析不到频道"
+                        continue
+                    }
                     repo.updatePlaylistSource(s.id, raw = raw)
-                    anyUpdated = true
+                    updated++
+                }
+                if (updated > 0) {
+                    val enabled = repo.getPlaylistSources().filter { it.enabled }
+                    fresh = M3uParser.merge(enabled.map { M3uParser.parse(it.raw, it.url) })
                 }
             }
             if (seq != sourceRefreshSeq) return@launch
-            // 一轮结束计数 +1（哪怕本轮全部失败也算执行过一次）
-            sourceRefreshCount++
-            if (anyUpdated) {
-                // 静默就地更新：只把最新线路写回内存里的频道对象，不重建列表、不弹提示、
-                // 不打断当前播放。正在看的这一路继续走已缓冲的流；下一次换台那一刻
-                // openChannel() 从同一批对象里取到的就是最新地址，等于"换台瞬间直接换掉"。
-                applyRefreshedChannelsSilently()
+            if (updated > 0 && fresh.isNotEmpty()) {
+                // 只有真正拉到新内容才计数，避免「显示刷新了但什么都没变」的假成功
+                sourceRefreshCount++
+                sourceRefreshLastResult = "成功更新 $updated 个源"
+                // 静默就地更新：只把最新线路写回内存里的频道对象，不重建列表、不弹提示。
+                applyRefreshedChannelsSilently(fresh)
+                // 正在观看：若当前这条线路已被新数据淘汰，就地换到新线路（不退出播放页）。
+                // 线路还在则只修正索引，用户完全无感。
+                if (pagePlayer.visibility == View.VISIBLE) {
+                    currentChannel?.let { ch -> resyncPlayingSilently(ch) }
+                }
+            } else {
+                sourceRefreshLastResult = if (failReason.isBlank()) "内容无变化" else failReason
             }
+        }
+    }
+
+    /**
+     * 观看中静默同步线路：数据已在 applyRefreshedChannelsSilently 里就地换好，
+     * 这里只负责让播放器跟上，并保证状态栏不会残留旧错误提示。
+     */
+    private fun resyncPlayingSilently(channel: Channel) {
+        val pm = playerManager ?: return
+        // VLC 兜底内核接管期间（MP2/AC3 等软解频道）不动 Exo，否则会和兜底内核抢画面。
+        // 这类频道本来就走独立内核，等下次正常换台再同步即可。
+        if (fallbackPlayer != null) return
+        val switched = pm.resyncPlayingChannel(channel)
+        if (switched) {
+            // 真的换了线路：更新线路标签，状态回到「连接中」，让用户知道画面会重连一次
+            val total = channel.sources.size
+            val idx = pm.playingSourceIndex
+            currentLineLabel = if (total > 1 && idx >= 0) "线路 ${idx + 1}/$total" else "直播"
+            setStatus("$currentLineLabel · 订阅源已更新，正在连接…", R.color.yellow)
         }
     }
 
@@ -2033,6 +2075,7 @@ class MainActivity : AppCompatActivity() {
         val spCropStrength = view.findViewById<android.widget.Spinner>(R.id.spCropStrength)
         val spSourceRefresh = view.findViewById<android.widget.Spinner>(R.id.spSourceRefresh)
         val vRefreshCount = view.findViewById<TextView>(R.id.vRefreshCount)
+        val vRefreshResult = view.findViewById<TextView>(R.id.vRefreshResult)
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
@@ -2043,6 +2086,7 @@ class MainActivity : AppCompatActivity() {
             refreshMinutesOptions.indexOf(playSettings.sourceRefreshMin).coerceAtLeast(0)
         )
         vRefreshCount.text = "${sourceRefreshCount} 次"
+        vRefreshResult.text = sourceRefreshLastResult
 
         // 数值项：选中后按确定弹数字键盘，确认才写入 tag/text
         bindNumberField(vWindow, "卡顿统计窗口", playSettings.stallWindowS, 5, 60, " 秒")
@@ -2120,6 +2164,10 @@ class MainActivity : AppCompatActivity() {
                 if (newRefreshMin != oldRefreshMin) {
                     playSettings.sourceRefreshMin = newRefreshMin
                     scheduleSourceRefresh()
+                    // 首次开启时立刻跑一轮，不必干等一个完整周期才知道有没有生效
+                    if (oldRefreshMin == 0 && newRefreshMin > 0) {
+                        performSourceRefresh(sourceRefreshSeq)
+                    }
                 }
 
                 HttpCompat.allowInsecureTls = playSettings.insecureTls

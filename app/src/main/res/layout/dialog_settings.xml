@@ -270,6 +270,18 @@
                 android:text="0 次" />
         </LinearLayout>
 
+        <LinearLayout style="@style/SettingRow">
+            <TextView style="@style/SettingLabel" android:text="上次刷新结果" />
+            <TextView
+                android:id="@+id/vRefreshResult"
+                style="@style/SettingValue"
+                android:maxWidth="200dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="13sp"
+                android:text="尚未刷新" />
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
