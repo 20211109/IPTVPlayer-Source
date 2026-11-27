@@ -280,7 +280,12 @@ class VlcFallbackPlayer(
         if (released) return
         if (zoomMode == "scale") layoutSurface()
         // 按比例定尺寸时视图尺寸跟着宿主走，宿主变了必须重排
-        if (fitAspect > 0f) layoutSurface()
+        if (fitAspect > 0f) {
+            layoutSurface()
+            // 缓冲是固定尺寸（见 applyBufferSize），宿主变了就得跟着重算，否则视图已是新矩形、
+            // 缓冲还是旧尺寸，合成器会把旧缓冲拉伸铺满 —— 又是一次看得见的形变。
+            applyBufferSize()
+        }
         if (bufferAspect > 0f) {
             // 拉伸缓冲的高度是跟着宿主走的，宿主变了必须重算
             val oldW = bufferW
@@ -293,13 +298,16 @@ class VlcFallbackPlayer(
         maybeRestartIfSizeChanged()
     }
 
-    /** 当前该交给 VLC 的窗口尺寸：拉伸模式是渲染缓冲，按比例定尺寸模式是视频矩形，否则是视图尺寸 */
+    /** 当前该交给 VLC 的窗口尺寸：拉伸模式是渲染缓冲，按比例定尺寸模式是固定缓冲，否则是视图尺寸 */
     private fun targetSurfaceSize(): Pair<Int, Int> {
         if (bufferW > 0 && bufferH > 0) return bufferW to bufferH
         if (fitAspect > 0f) {
-            // 直接按宿主与比例算，不去读 sv.width：起播瞬间视图还没布局完，
-            // 读到的可能是 0 或上一次的旧尺寸，那正是 vout 建错尺寸又要重建的由来。
-            // 宿主也还没量到时返回 0，由 startEngine 等待，绝不用兜底值先起播。
+            // 返回固定缓冲尺寸而不是视图矩形：窗口尺寸必须与缓冲严格一致。
+            // 视图（布局）只负责「显示多大」，缓冲+窗口负责「渲染多大」，两者分开之后
+            // 视图再怎么重排都不会让 libvlc 重算视口 —— 这就是那一下放大的根。
+            val (bw, bh) = fitBufferSize()
+            if (bw > 0 && bh > 0) return bw to bh
+            // 比例不可用（轨道尺寸没拿到）时才退回视图矩形
             return fitRectSize()
         }
         val sv = surfaceView ?: return 0 to 0
@@ -339,12 +347,48 @@ class VlcFallbackPlayer(
         bufferH = hh
     }
 
+    /**
+     * 竖屏「视频层 = 视频矩形」档专用的**固定渲染缓冲尺寸**：按视频比例、以 1080 为基准，
+     * 与视图尺寸完全解耦。
+     *
+     * 为什么不能直接用视图尺寸（1.86/1.87 的做法）：视图尺寸受布局时机支配 —— addView 那一刻
+     * 宽高是 0，之后还可能短暂停在 MATCH_PARENT。渲染缓冲一旦跟着视图走，libvlc 就会在这几个
+     * 时刻拿到「视口比缓冲大」的组合，于是把画面按大视口渲染、超出缓冲的部分被裁掉，
+     * 屏幕上就是「整块画面放大一下、然后缩回」。
+     *
+     * 固定成 1080p 等比之后，缓冲尺寸 / 交给 libvlc 的窗口尺寸 / 它内部算出的视口
+     * 三者恒定同一个值：视频在缓冲里永远是等比满铺，不存在裁切的可能；
+     * 从缓冲到视图的那一步缩放全部交给系统合成器，是纯粹的等比变换，不会跳。
+     */
+    private fun fitBufferSize(): Pair<Int, Int> {
+        if (fitAspect <= 0f) return 0 to 0
+        var h = 1080
+        var w = (h * fitAspect).toInt()
+        if (w > 1920) {
+            w = 1920
+            h = (w / fitAspect).toInt()
+        }
+        if (w < 64 || h < 64) return 0 to 0
+        return w to h
+    }
+
     /** 把缓冲尺寸交给 SurfaceView：视图尺寸不变，缓冲独立 —— 拉伸就发生在这里 */
     private fun applyBufferSize() {
         val sv = surfaceView ?: return
         runCatching {
-            if (bufferW > 0 && bufferH > 0) sv.holder.setFixedSize(bufferW, bufferH)
-            else sv.holder.setSizeFromLayout()
+            if (bufferW > 0 && bufferH > 0) {
+                sv.holder.setFixedSize(bufferW, bufferH)
+                return@runCatching
+            }
+            if (fitAspect > 0f) {
+                // 固定尺寸不依赖布局：挂上去那一刻就是最终值，不存在「先按 0/整屏建一次、
+                // 之后随布局重建」的中间态。attachViews 里 libvlc 拿到的就是它。
+                val (w, h) = fitBufferSize()
+                if (w > 0 && h > 0) sv.holder.setFixedSize(w, h)
+                else sv.holder.setSizeFromLayout()
+                return@runCatching
+            }
+            sv.holder.setSizeFromLayout()
         }
     }
 
@@ -410,14 +454,12 @@ class VlcFallbackPlayer(
                 layoutSurface()
                 // 还要等视图真的按目标矩形完成一次布局，再把窗口尺寸交出去。
                 //
-                // 渲染缓冲这一档走的是 setSizeFromLayout()，跟随的是视图**实际**布局尺寸；
-                // 视图还停在旧的满屏尺寸时起播，第一帧的缓冲比例和窗口比例就对不上，
-                // 合成器会把那块缓冲拉伸铺满当前视图 —— 用户看到的就是
-                // 「整块画面往右放大一下、然后才恢复」。等一下（最多 500ms）比事后补救便宜。
+                // 视图这一层只决定「显示多大」，本不该影响渲染；但只要它还是 MATCH_PARENT
+                // 或尺寸为 0，合成器就会把固定大小的缓冲拉满整屏，照样是一帧形变。
+                // 所以这里等到位再起播（最多 500ms），而不是事后补。
                 val (rw, rh) = fitRectSize()
-                if (rw > 0 && rh > 0 && (sv.width != rw || sv.height != rh) &&
-                    engineWaitTries < ENGINE_WAIT_MAX
-                ) {
+                val laidOut = rw > 0 && rh > 0 && sv.width == rw && sv.height == rh
+                if (!laidOut && engineWaitTries < ENGINE_WAIT_MAX) {
                     engineWaitTries++
                     sv.postDelayed({ if (!released && g == generation) startEngine(url, g) }, ENGINE_WAIT_STEP_MS)
                     return
@@ -438,6 +480,10 @@ class VlcFallbackPlayer(
             submitVout { runCatching { mp.setVolume(100) } }
 
             val vout = mp.getVLCVout()
+            // 把缓冲尺寸钉下来再 attach：libvlc 是拿「缓冲（ANativeWindow）」和
+            // setWindowSize 这两份尺寸去算显示区域的，两者只要在 attach 那一刻不一致，
+            // 第一帧就是「放大裁切」，随后才纠正。
+            applyBufferSize()
             vout.setVideoView(sv)
             vout.setWindowSize(w, h)
             vout.attachViews()

@@ -2785,16 +2785,15 @@ private const val SWITCH_FRAME_HOLD_VERTICAL_MS = 2_200L
 /**
  * 竖屏 + 已按视频比例定视频层尺寸时的遮挡时长。
  *
- * 1.86 曾把它压到 1 秒（认为几何已定死、出画即最终形态），实测「上下拉」确实没了，
- * 但「整块画面往右放大一下再缩回」还在，正好发生在 Playing 之后 1–2 秒：
- * libvlc 拿到首帧尺寸后会在自己的 vout 里重算一次视口，这一下不产生新的 surface、
- * 也不回调 onRestarting，纯粹是内部重排 —— 任何事件驱动的遮挡都抓不到它，只能按时长盖。
+ * 这一档的几何已经被钉死在渲染缓冲上（VlcFallbackPlayer.fitBufferSize）：
+ * 缓冲 / 窗口 / libvlc 视口恒定同一个尺寸，视图只负责显示多大，任何重排都到不了屏幕上。
+ * 所以静止图不再需要拿去盖「缩放动作」，只盖住 VLC 首帧之前那块黑就够。
  *
- * 所以这里回到 2.1 秒：把 Playing 之后那段「画面还在自己找位置」的窗口整段盖住。
- * 代价是揭开前多定格约一秒，覆盖层显示的是切换前同一路画面，
- * 观感是「画面停了一下」，比看得见的放大/缩放好得多。
+ * 1.86 取 1 秒、1.87 取 2.1 秒都是为了让遮挡替几何兜底，代价是切开后要干等一两秒；
+ * 1.88 从根上修好之后压到 0.7 秒 —— Playing 事件本身就代表已经有画面了，
+ * 多出来的这点只是让首帧稳定一帧再揭开。
  */
-private const val SWITCH_FRAME_HOLD_VERTICAL_FIT_MS = 2_100L
+private const val SWITCH_FRAME_HOLD_VERTICAL_FIT_MS = 700L
 
 /** 静止图淡出时长：太长会像卡了一下，太短又能看到硬切 */
 private const val SWITCH_FRAME_FADE_MS = 200L
