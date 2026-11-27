@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -12,6 +14,9 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.PixelCopy
+import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
@@ -139,7 +144,8 @@ class MainActivity : AppCompatActivity() {
 
     // 视图
     private lateinit var pageList: View
-    private lateinit var pagePlayer: View
+    // 必须是 FrameLayout：换内核时要往里插一张「旧画面」覆盖层（addView 只有 ViewGroup 有）
+    private lateinit var pagePlayer: FrameLayout
     private lateinit var recyclerView: RecyclerView
     private lateinit var tvEmpty: TextView
     private lateinit var progressBar: ProgressBar
@@ -176,6 +182,27 @@ class MainActivity : AppCompatActivity() {
     private var fallbackPlayer: VlcFallbackPlayer? = null
     /** 兜底内核启动超时计时器 */
     private var fallbackTimeoutRunnable: Runnable? = null
+
+    /**
+     * 换内核期间盖在画面上的「旧画面静止图」。
+     *
+     * 为什么需要它：Exo 一停，它的 surface 立刻变黑；VLC 又是新建一个 SurfaceView，
+     * 在出首帧之前这块窗口同样是黑的。两段黑叠起来就是用户说的「切软解时黑屏一下」。
+     * 这里在停 Exo **之前**把当前这一帧拷贝下来贴在画面上，等 VLC 真的出画再淡出，
+     * 于是黑屏窗口被一张静止画面盖住，观感变成「画面定格一下 → 平滑过渡」。
+     */
+    private var kernelSwitchFrame: ImageView? = null
+    /** 上面那张静止图对应的位图，移除时要回收（1080p 一整屏约 8MB） */
+    private var kernelSwitchBitmap: android.graphics.Bitmap? = null
+    /** 抓帧令牌：抓帧是异步的，期间换台/再切一次内核都要让这次结果作废 */
+    private var kernelSwitchToken = 0
+    /** 是否已经排了「延迟淡出」：避免重建管线时重复挂一次动画 */
+    private var kernelSwitchHidePending = false
+    /**
+     * 那条延迟淡出任务的引用。必须留着才能在切台/重切内核时撤销它 ——
+     * 否则它到点会执行，而此时屏幕上可能已经换成了新一轮的静止图，会被它顺手淡掉。
+     */
+    private var kernelSwitchHideRunnable: Runnable? = null
 
     /**
      * 自动去黑边当前生效的方式（运行时状态，不落盘；换台/换源都重新判断）。
@@ -1721,11 +1748,40 @@ class MainActivity : AppCompatActivity() {
      * @param codecLabel 识别到的音频编码（AC-3、MP2…），仅用于状态提示
      */
     private fun startVlcFallback(source: Source, codecLabel: String = "音频") {
-        val pm = playerManager ?: return
+        // 先抓一帧旧画面，再往下走：Exo 一 stop 它的 surface 就黑，而 VLC 从建 SurfaceView
+        // 到出首帧还要 1~2 秒，这段黑洞就是「切软解黑屏一下」。抓帧是异步的（PixelCopy），
+        // 但只有一帧的工夫（约 16~50ms），Exo 在这期间照常播放，用户看不出来。
+        val token = ++kernelSwitchToken
+        val urlAtStart = playerManager?.playingUrl
+        captureSwitchFrame { bmp ->
+            // 抓帧期间换了台 / 又切了一次内核：这次结果作废，交给新的那次去处理。
+            // 不拦的话会拿着上一条流去起 VLC，把新频道的播放顶掉。
+            if (token != kernelSwitchToken || playerManager?.playingUrl != urlAtStart) {
+                bmp?.recycle()
+                return@captureSwitchFrame
+            }
+            startVlcFallbackNow(source, codecLabel, bmp)
+        }
+    }
+
+    /**
+     * 真正的切换动作。原样保留原来的顺序，只多了一步「把旧画面贴上去」。
+     *
+     * @param frame 切换前抓到的最后一帧；null 表示这台设备抓不到（API<24、不支持 PixelCopy、
+     *              自定义缩放模式），此时行为与旧版完全一致，只是少了那层遮挡。
+     */
+    private fun startVlcFallbackNow(source: Source, codecLabel: String, frame: Bitmap?) {
+        val pm = playerManager
+        if (pm == null) {
+            frame?.recycle()
+            return
+        }
         // 同一时间只保留一个兜底内核
         releaseVlcFallback()
         // 换了内核就等于换了渲染路径，黑边判断结果作废，出画后重测
         resetAutoCrop()
+        // 必须在停 Exo 之前贴上去，否则中间会露出一帧黑
+        if (frame != null) showSwitchFrame(frame)
         // 必须先停掉 Exo：硬解码器实例有限，Exo 不释放 VLC 就起不来
         pm.setSuspended(true)
         playerViewRef?.visibility = View.GONE
@@ -1778,6 +1834,11 @@ class MainActivity : AppCompatActivity() {
                 applyAspectCrop(silent = true, force = true)
                 // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
                 setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
+                // 首帧已经出来了，但先别急着揭掉那张静止图：setVideoScale 是异步下发，
+                // Playing 后 400ms 还有一次重试，画幅可能在这期间才真正生效。
+                // 多盖这一会儿，就把「画面上下拉一下」藏在了静止画面后面，
+                // 用户只看到一次平滑溶解，而不是拉一下再稳。
+                hideSwitchFrame(SWITCH_FRAME_HOLD_MS)
                 // 软解路径出画更慢，多等一会儿再采样黑边
                 scheduleAutoCrop(3_500L)
             },
@@ -1818,6 +1879,222 @@ class MainActivity : AppCompatActivity() {
         fallbackTimeoutRunnable = null
         fallbackPlayer?.release()
         fallbackPlayer = null
+        // 内核都放掉了，那张静止图留着就是冻住的画面，必须一起收掉
+        clearSwitchFrame()
+    }
+
+    // ── 换内核时的「旧画面静止图」─────────────────────────────────
+    // 见 kernelSwitchFrame 的注释：用来抹掉 Exo 停播到 VLC 出画之间的黑色空洞，
+    // 顺带把 VLC 画幅下发的那一下跳动藏在静止画面后面。
+
+    /**
+     * 抓当前正在显示的这一帧。必须在停 Exo 之前调用。
+     *
+     * 抓不到一律回调 null（由调用方走原来的路径），**任何情况下都不影响播放**：
+     * API<24、设备不支持 PixelCopy（个别盒子/DRM）、surface 无效、内存不足都算在内。
+     */
+    private fun captureSwitchFrame(onDone: (Bitmap?) -> Unit) {
+        val pv = playerViewRef
+        if (pv == null || pv.visibility != View.VISIBLE) return onDone(null)
+        if (pagePlayer.visibility != View.VISIBLE) return onDone(null)
+        // 自定义缩放会把播放视图撑得比屏幕大（靠视图尺寸实现），整屏贴图对不上位置，
+        // 贴上去反而会露出错位的画面 —— 这一档干脆不贴。
+        if (playSettings.zoomMode == "scale") return onDone(null)
+        val hostW = videoHost.width
+        val hostH = videoHost.height
+        if (hostW <= 0 || hostH <= 0) return onDone(null)
+        val target = pv.videoSurfaceView
+
+        if (playSettings.renderMode == "texture") {
+            // 按 TextureView 自己的尺寸取图（不做缩放）：贴回去时要按它的真实位置 1:1 摆，
+            // 若这里就拉成整屏，FIT 模式下的 4:3 频道会被横向拉长。
+            val tv = target as? TextureView
+            if (tv == null || !tv.isAvailable || tv.width <= 0 || tv.height <= 0) return onDone(null)
+            return onDone(runCatching { tv.getBitmap(tv.width, tv.height) }.getOrNull())
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return onDone(null)
+        val sv = target as? SurfaceView ?: return onDone(null)
+        if (!sv.holder.surface.isValid) return onDone(null)
+        val w = sv.width
+        val h = sv.height
+        if (w <= 0 || h <= 0) return onDone(null)
+        // 一整屏位图，4K 盒子上约 33MB。分配失败就放弃遮挡，让切换走老路。
+        val dst = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (t: Throwable) {
+            return onDone(null)
+        }
+
+        // 只交付一次，且必须交付一次。
+        // 「必须」：PixelCopy 的回调在 surface 被销毁等情况下可能永远不来，
+        //         那样 VLC 就永远不会被启动，频道会卡在「有画面没声音」——
+        //         所以加一道超时，到点就按「抓不到」继续切换。
+        // 「只交付一次」：超时先到之后，迟到的回调只负责回收自己的位图。
+        var finished = false
+        val timeout = Runnable {
+            if (finished) return@Runnable
+            finished = true
+            onDone(null)
+        }
+        uiHandler.postDelayed(timeout, SWITCH_FRAME_CAPTURE_TIMEOUT_MS)
+
+        try {
+            PixelCopy.request(sv, Rect(0, 0, w, h), dst, { result ->
+                if (finished) {
+                    // 已经按超时走掉了，这张图没人用，回收掉
+                    if (!dst.isRecycled) dst.recycle()
+                    return@request
+                }
+                finished = true
+                uiHandler.removeCallbacks(timeout)
+                if (result == PixelCopy.SUCCESS) {
+                    onDone(dst)
+                } else {
+                    dst.recycle()
+                    onDone(null)
+                }
+            }, uiHandler)
+        } catch (t: Throwable) {
+            // 部分盒子/DRM 内容不支持拷贝：这一轮不遮挡
+            finished = true
+            uiHandler.removeCallbacks(timeout)
+            if (!dst.isRecycled) dst.recycle()
+            onDone(null)
+        }
+    }
+
+    /** 把抓到的旧画面贴到播放区最上层（转圈和顶部栏仍在它之上） */
+    private fun showSwitchFrame(bmp: Bitmap) {
+        clearSwitchFrame()
+        if (pagePlayer.visibility != View.VISIBLE) {
+            bmp.recycle()
+            return
+        }
+        val iv = ImageView(this).apply {
+            layoutParams = frameLayoutParamsFor()
+            // 抓的就是那一块区域的原始像素，必须 1:1 铺回去，留一点缩放差都会看到错位
+            scaleType = ImageView.ScaleType.FIT_XY
+            setImageBitmap(bmp)
+            // 只负责挡黑，不参与交互（否则会把遥控焦点和点击从播放页截走）
+            isClickable = false
+            isFocusable = false
+            isFocusableInTouchMode = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        // videoHost 是第 0 个子view，插在 1 就是「盖住画面、但在转圈与顶部栏之下」
+        pagePlayer.addView(iv, 1)
+        kernelSwitchFrame = iv
+        kernelSwitchBitmap = bmp
+    }
+
+    /**
+     * 覆盖层在播放区里的摆放位置。
+     *
+     * 视频层（SurfaceView / TextureView）不一定等于播放区大小：
+     * - FIT（默认）：按比例内缩，两侧或上下留黑边，比播放区小；
+     * - ZOOM（裁切铺满）：被摆得比播放区大，多出的部分由父布局裁掉；
+     * - FILL（拉伸）：正好等于播放区。
+     * 所以不能简单地 MATCH_PARENT + FIT_XY，否则前两种都会画面错位/变形。
+     * 拿不到几何信息时退回整屏，与旧行为一致。
+     */
+    private fun frameLayoutParamsFor(): FrameLayout.LayoutParams {
+        val full = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        val target = playerViewRef?.videoSurfaceView ?: return full
+        val w = target.width
+        val h = target.height
+        if (w <= 0 || h <= 0) return full
+        val targetLoc = IntArray(2)
+        val hostLoc = IntArray(2)
+        try {
+            target.getLocationInWindow(targetLoc)
+            pagePlayer.getLocationInWindow(hostLoc)
+        } catch (t: Throwable) {
+            return full
+        }
+        // ZOOM 时这两个值可能是负数，负 margin 正好还原「超出播放区被裁掉」的效果
+        return FrameLayout.LayoutParams(w, h).apply {
+            leftMargin = targetLoc[0] - hostLoc[0]
+            topMargin = targetLoc[1] - hostLoc[1]
+        }
+    }
+
+    /** 淡出并回收静止图；delayMs 给「画幅还没下发完」留出遮挡时间 */
+    private fun hideSwitchFrame(delayMs: Long = 0L) {
+        // 已经安排过就不要再排一次：VLC 重建管线（转屏、卡死恢复）后会再回调一次 onPrepared
+        if (kernelSwitchFrame == null || kernelSwitchHidePending) return
+        kernelSwitchHidePending = true
+        val start = Runnable {
+            kernelSwitchHidePending = false
+            kernelSwitchHideRunnable = null
+            // 这里刻意不清 kernelSwitchFrame / kernelSwitchBitmap：
+            // 因为接下来要淡出 200ms，这期间用户完全可能换台，
+            // clearSwitchFrame() 还得靠这两个引用把旧画面立刻摘掉。
+            // 真正清空放在动画结束（fadeOutFrame 内），并核对引用没被换掉。
+            val iv = kernelSwitchFrame ?: return@Runnable
+            val bmp = kernelSwitchBitmap
+            fadeOutFrame(iv, bmp)
+        }
+        kernelSwitchHideRunnable = start
+        if (delayMs > 0L) uiHandler.postDelayed(start, delayMs) else start.run()
+    }
+
+    private fun fadeOutFrame(iv: ImageView, bmp: Bitmap?) {
+        fun finish() {
+            // 只有引用仍指向这一次的对象才清空：淡出期间可能已经贴上了新一轮的图，
+            // 那两张属于下一轮，不能被这里顺手清掉（否则那张图就再也没人回收了）。
+            if (kernelSwitchFrame === iv) kernelSwitchFrame = null
+            if (kernelSwitchBitmap === bmp) kernelSwitchBitmap = null
+            detachFrameView(iv)
+            recycleFrameBitmap(bmp)
+        }
+        try {
+            iv.animate().cancel()
+            iv.animate().alpha(0f).setDuration(SWITCH_FRAME_FADE_MS).withEndAction { finish() }.start()
+        } catch (t: Throwable) {
+            // 动画起不来就直接摘掉，别让冻住的画面留在屏幕上
+            finish()
+        }
+    }
+
+    /**
+     * 立刻收掉静止图（切台、失败降级、退出播放页时用，不等淡出）。
+     *
+     * 关键：淡出要等 480ms 才真正开始，这期间那层图还挂在屏幕上。
+     * 所以这里必须在「还在等」的阶段就把它摘掉，否则切台后会有半秒
+     * 盖着上一台的静止画面 —— 比黑屏难受得多。
+     */
+    private fun clearSwitchFrame() {
+        // 排期中的淡出必须一起撤掉：不撤的话它到点会执行，把下一轮刚贴上去的新图淡掉
+        kernelSwitchHideRunnable?.let { uiHandler.removeCallbacks(it) }
+        kernelSwitchHideRunnable = null
+        kernelSwitchHidePending = false
+        val iv = kernelSwitchFrame ?: return
+        kernelSwitchFrame = null
+        val bmp = kernelSwitchBitmap
+        kernelSwitchBitmap = null
+        detachFrameView(iv)
+        recycleFrameBitmap(bmp)
+    }
+
+    private fun detachFrameView(iv: ImageView) {
+        try {
+            (iv.parent as? android.view.ViewGroup)?.removeView(iv)
+        } catch (t: Throwable) {
+            // 已经不在树上了
+        }
+    }
+
+    private fun recycleFrameBitmap(bmp: Bitmap?) {
+        if (bmp == null) return
+        try {
+            if (!bmp.isRecycled) bmp.recycle()
+        } catch (t: Throwable) {
+            // 忽略：回收失败最多是多占一点内存，绝不能让播放流程崩
+        }
     }
 
     /** 兜底内核没有 PlayerView 控制条：遥控确认键直接暂停/继续 */
@@ -2413,3 +2690,24 @@ private const val AUTO_CROP_RETRY_MS = 1_300L
 private const val MAX_AUTO_CROP_TRIES = 6
 /** 播放页顶部信息条：最后一次操作后多久自动淡出（毫秒） */
 private const val OVERLAY_AUTO_HIDE_MS = 4_500L
+
+/**
+ * 换内核时那层「旧画面静止图」，在 VLC 出首帧之后再压多久才淡出。
+ *
+ * 要盖住两件事：① VLC 首帧之前那块黑洞；② setVideoScale 是异步下发，
+ * Playing 之后 400ms 还有一次重试，画幅可能到那时才真正生效（表现为画面「上下拉一下」）。
+ * 480ms 刚好把 400ms 那次重试也包在里面。
+ */
+private const val SWITCH_FRAME_HOLD_MS = 480L
+
+/** 静止图淡出时长：太长会像卡了一下，太短又能看到硬切 */
+private const val SWITCH_FRAME_FADE_MS = 200L
+
+/**
+ * 抓「切换前最后一帧」的超时。
+ *
+ * PixelCopy 的回调在 surface 被销毁、DRM 内容、个别盒子上可能永远不返回；
+ * 而抓帧没回来，后面的切换动作就不会发生 —— 表现是「有画面没声音」一直不好。
+ * 到点按「抓不到」继续走，最多损失一层遮挡，绝不阻塞播放。
+ */
+private const val SWITCH_FRAME_CAPTURE_TIMEOUT_MS = 400L

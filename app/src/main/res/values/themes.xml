@@ -142,6 +142,25 @@
         <item name="android:stateListAnimator">@animator/focus_scale</item>
     </style>
 
+    <!--
+        只读数值：给「本次已刷新次数 / 上次刷新结果」这类纯展示用。
+        不能套 SettingValue —— 那个是可点胶囊（focusable + 焦点放大动画），
+        遥控器会停在上面还放大，按确定却没有任何反应，盒子上看着像卡死。
+        这里不可聚焦、无背景、与左侧标签同字号，行高由标签决定，垂直居中不会错位。
+    -->
+    <style name="SettingValueReadonly">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:gravity">end|center_vertical</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/primary</item>
+        <item name="android:focusable">false</item>
+        <item name="android:focusableInTouchMode">false</item>
+        <item name="android:clickable">false</item>
+        <item name="android:longClickable">false</item>
+    </style>
+
     <!-- 数字键盘：用 TextView 而不是 Button（MaterialButton 会接管 background，吃掉自定义样式） -->
     <style name="NumKey">
         <item name="android:layout_width">0dp</item>

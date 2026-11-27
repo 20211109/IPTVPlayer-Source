@@ -837,6 +837,14 @@ class PlayerManager(
     val playingSourceIndex: Int get() = currentSourceIndex
 
     /**
+     * 当前正在播放的线路地址；尚未起播时为 null。
+     *
+     * 给界面侧做「这帧/这次切内核还算不算数」的判据用：抓帧、停内核都是异步的，
+     * 期间用户可能已经换了台，必须能一眼看出手上的东西是不是已经过期。
+     */
+    val playingUrl: String? get() = currentSource?.url
+
+    /**
      * 手动切到指定的第 index 条线路（0 起）。
      *
      * 与 [switchToNextSourceManually] 的区别：那个只能顺序切「下一条」，遇到

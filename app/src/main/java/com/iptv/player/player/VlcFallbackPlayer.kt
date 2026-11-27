@@ -336,6 +336,12 @@ class VlcFallbackPlayer(
             vout.attachViews()
             // attachViews 有可能把 holder 恢复成「跟随布局」，这里再定一次缓冲尺寸
             applyBufferSize()
+            // 首帧之前就把画幅指令发下去。
+            // setVideoScale 是异步生效的：等到 Playing 事件再发，头几百毫秒会先按默认比例
+            // 出画、再突然缩放成裁切/铺满 —— 用户看到的就是「画面上下拉一下」。
+            // 这里提前发一次，绝大多数机型第一帧就已经是最终画幅；
+            // Playing 之后那两次重试仍然保留，用来兜「attach 时 vout 还没就绪」的机器。
+            applyScaleTypeAsync()
 
             mp.setEventListener(object : MediaPlayer.EventListener {
                 // 注意：3.6.x 这里声明的是 MediaPlayer.Event；3.7.x 改成了 AbstractVLCEvent，
@@ -438,19 +444,22 @@ class VlcFallbackPlayer(
 
     private fun applyScaleTypeAsync() {
         val mp = player ?: return
-        val scale = when {
-            // 拉伸模式：缓冲本身就是视频比例，best-fit 就已经铺满整块缓冲了。
-            // 这里绝不能再叠 FILL/FIT_SCREEN —— 那会把刚刚对齐的画幅又裁/拉一次。
-            bufferW > 0 && bufferH > 0 -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
-            // 自动去黑边优先于 fit：用 VLC 自己的裁切，不改视图尺寸
-            autoFill && zoomMode == "fit" -> MediaPlayer.ScaleType.SURFACE_FILL
-            zoomMode == "crop" -> MediaPlayer.ScaleType.SURFACE_FILL
-            zoomMode == "stretch" -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
-            else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
-        }
+        val scale = currentScaleType()
         // 关键：不在主线程同步调用。vout 正在重建时这一步会阻塞，
         // 一旦卡在主线程就是「画面还在动、返回键按不动」。
         submitVout { runCatching { mp.setVideoScale(scale) } }
+    }
+
+    /** 当前决策对应的 VLC 画面缩放方式（纯计算，不下发） */
+    private fun currentScaleType(): MediaPlayer.ScaleType = when {
+        // 拉伸模式：缓冲本身就是视频比例，best-fit 就已经铺满整块缓冲了。
+        // 这里绝不能再叠 FILL/FIT_SCREEN —— 那会把刚刚对齐的画幅又裁/拉一次。
+        bufferW > 0 && bufferH > 0 -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
+        // 自动去黑边优先于 fit：用 VLC 自己的裁切，不改视图尺寸
+        autoFill && zoomMode == "fit" -> MediaPlayer.ScaleType.SURFACE_FILL
+        zoomMode == "crop" -> MediaPlayer.ScaleType.SURFACE_FILL
+        zoomMode == "stretch" -> MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+        else -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
     }
 
     // ── 卡死看门狗 ────────────────────────────────────────────────

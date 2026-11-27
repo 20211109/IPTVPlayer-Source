@@ -266,7 +266,7 @@
             <TextView style="@style/SettingLabel" android:text="本次已刷新次数" />
             <TextView
                 android:id="@+id/vRefreshCount"
-                style="@style/SettingValue"
+                style="@style/SettingValueReadonly"
                 android:text="0 次" />
         </LinearLayout>
 
@@ -274,11 +274,10 @@
             <TextView style="@style/SettingLabel" android:text="上次刷新结果" />
             <TextView
                 android:id="@+id/vRefreshResult"
-                style="@style/SettingValue"
+                style="@style/SettingValueReadonly"
                 android:maxWidth="200dp"
                 android:maxLines="1"
                 android:ellipsize="end"
-                android:textSize="13sp"
                 android:text="尚未刷新" />
         </LinearLayout>
 
