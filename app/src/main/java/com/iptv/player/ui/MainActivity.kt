@@ -1859,10 +1859,9 @@ class MainActivity : AppCompatActivity() {
                 // VLC 的 Playing 事件代表音视频轨都已解出来，这时候是真的有声音了
                 setStatus("$currentLineLabel · 播放中（${audioDesc}软解）", R.color.green)
                 // 首帧已经出来了，但先别急着揭掉那张静止图：setVideoScale 是异步下发，
-                // Playing 后 400ms 还有一次重试，画幅可能在这期间才真正生效。
-                // 多盖这一会儿，就把「画面上下拉一下」藏在了静止画面后面，
-                // 用户只看到一次平滑溶解，而不是拉一下再稳。
-                hideSwitchFrame(SWITCH_FRAME_HOLD_MS)
+                // Playing 后 400ms / 1200ms 还有重试，画幅可能在这期间才真正生效。
+                // 多盖这一会儿，就把「画面上下拉一下」藏在了静止画面后面。
+                hideSwitchFrame(switchFrameHoldMs())
                 // 软解路径出画更慢，多等一会儿再采样黑边
                 scheduleAutoCrop(3_500L)
             },
@@ -1873,6 +1872,9 @@ class MainActivity : AppCompatActivity() {
                 if (!handled) {
                     pbLoading.visibility = View.VISIBLE
                     setStatus("$currentLineLabel · 画面重排中…", R.color.yellow)
+                    // 重建期间 VLC 的画面会短暂消失/错位。静止图还在的话就继续盖着并重新计时，
+                    // 否则用户会先看到「往右一拉」、再看到「上下缩一下」。
+                    extendSwitchFrameHold(switchFrameHoldMs())
                 }
             },
             // 与 Exo 侧的「直播延迟」同量级：用户把这个值调大后，两条内核都要跟着变厚，
@@ -2064,6 +2066,34 @@ class MainActivity : AppCompatActivity() {
         }
         kernelSwitchHideRunnable = start
         if (delayMs > 0L) uiHandler.postDelayed(start, delayMs) else start.run()
+    }
+
+    /**
+     * 静止图该盖多久。
+     *
+     * 横屏：等 setVideoScale 的重试（400/1200ms）落定即可。
+     * 竖屏：VLC 的 vout 要按「宽高互换」的窗口重建一次，重建前后画面会先偏一下、
+     * 再缩一下 —— 那正是竖屏下「先往右拉、再上下拉」的来源，需要盖得更久。
+     */
+    private fun switchFrameHoldMs(): Long {
+        // 优先按画面区实际比例判断；起播瞬间还没量到尺寸时退回系统方向
+        val w = videoHost.width
+        val h = videoHost.height
+        val portrait = if (w > 0 && h > 0) {
+            h > w
+        } else {
+            resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        }
+        return if (portrait) SWITCH_FRAME_HOLD_VERTICAL_MS else SWITCH_FRAME_HOLD_MS
+    }
+
+    /** 重新开始遮挡计时（VLC 重建 vout 时用）：已经在淡出/已揭开就不管了 */
+    private fun extendSwitchFrameHold(delayMs: Long) {
+        if (kernelSwitchFrame == null) return
+        kernelSwitchHideRunnable?.let { uiHandler.removeCallbacks(it) }
+        kernelSwitchHideRunnable = null
+        kernelSwitchHidePending = false
+        hideSwitchFrame(delayMs)
     }
 
     private fun fadeOutFrame(iv: ImageView, bmp: Bitmap?) {
@@ -2728,6 +2758,12 @@ private const val OVERLAY_AUTO_HIDE_MS = 4_500L
  * 观感是「画面稍稍停了一下」，比看得见的比例跳变好得多。
  */
 private const val SWITCH_FRAME_HOLD_MS = 1_300L
+
+/**
+ * 竖屏下的遮挡时长：VLC 要按宽高互换的窗口重建一次 vout（约 1–2 秒），
+ * 重建前后的位移与缩放都在这一段里，必须整段盖住。
+ */
+private const val SWITCH_FRAME_HOLD_VERTICAL_MS = 2_200L
 
 /** 静止图淡出时长：太长会像卡了一下，太短又能看到硬切 */
 private const val SWITCH_FRAME_FADE_MS = 200L

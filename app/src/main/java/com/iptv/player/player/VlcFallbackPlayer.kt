@@ -124,6 +124,8 @@ class VlcFallbackPlayer(
     /** 已交给 VLC 的窗口尺寸（= surface 的实际像素尺寸），用来判断是否需要重建 */
     private var voutWidth = 0
     private var voutHeight = 0
+    /** 起播前等 surface 尺寸的已重试次数（每次会话归零） */
+    private var engineWaitTries = 0
     private var lastRestartAt = 0L
     private var restartPending = false
 
@@ -284,6 +286,7 @@ class VlcFallbackPlayer(
     /** 起一条全新的会话：先挂 surface，等它拿到真实尺寸后再初始化 VLC */
     private fun beginSession(url: String) {
         val g = ++generation
+        engineWaitTries = 0
         val sv = SurfaceView(context).apply {
             // 兜底内核的 surface 只负责出画面：不能抢焦点、不能吃触摸，
             // 否则在部分机型上会把上层按钮的点击吞掉。
@@ -310,6 +313,21 @@ class VlcFallbackPlayer(
     private fun startEngine(url: String, g: Int) {
         if (released || g != generation) return
         val sv = surfaceView ?: return
+
+        // 必须等到 surface 的真实尺寸再起播。
+        // 用兜底值（整屏尺寸）先起播，交给 VLC 的窗口尺寸就和真实 surface 不一致，
+        // 之后 onSurfaceResized 必然会判定「尺寸变了」→ 重建 vout（2–5 秒）：
+        // 竖屏下这一次重建正是「画面先往右一拉、再上下缩一下」的来源。
+        // 布局一般几十毫秒内就完成，这里最多等 500ms，超时再退回旧兜底值，绝不卡死起播。
+        val (readyW, readyH) = targetSurfaceSize()
+        if (readyW <= 0 || readyH <= 0) {
+            if (engineWaitTries < ENGINE_WAIT_MAX) {
+                engineWaitTries++
+                sv.postDelayed({ if (!released && g == generation) startEngine(url, g) }, ENGINE_WAIT_STEP_MS)
+                return
+            }
+        }
+
         try {
             val (sw, sh) = targetSurfaceSize()
             val w = if (sw > 0) sw else fallbackWidth()
@@ -655,6 +673,10 @@ class VlcFallbackPlayer(
 
         /** 尺寸变化后延迟多久重建：留一帧给布局稳定 */
         const val RESTART_DELAY_MS = 420L
+
+        /** 起播前等待 surface 量好尺寸的次数与间隔（10 × 50ms = 最多 500ms） */
+        const val ENGINE_WAIT_MAX = 10
+        const val ENGINE_WAIT_STEP_MS = 50L
 
         /** 两次重建的最小间隔，防止尺寸抖动导致反复重建 */
         const val RESTART_COOLDOWN_MS = 3000L
