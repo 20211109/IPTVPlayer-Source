@@ -20,7 +20,6 @@ import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.HorizontalScrollView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -61,7 +60,9 @@ import com.iptv.player.update.UpdateManager
 import com.iptv.player.util.LogoHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.TimeZone
