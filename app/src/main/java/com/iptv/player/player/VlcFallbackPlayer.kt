@@ -406,7 +406,23 @@ class VlcFallbackPlayer(
             // beginSession 建视图那一刻宿主可能还没量到尺寸（fitRectSize 返回 0），
             // 那次 layoutParams 只能是 MATCH_PARENT；这里补一次，否则窗口是视频矩形、
             // 视图仍是整屏，画面会被合成器横向拉满 —— 比不改还糟。
-            if (fitAspect > 0f) layoutSurface()
+            if (fitAspect > 0f) {
+                layoutSurface()
+                // 还要等视图真的按目标矩形完成一次布局，再把窗口尺寸交出去。
+                //
+                // 渲染缓冲这一档走的是 setSizeFromLayout()，跟随的是视图**实际**布局尺寸；
+                // 视图还停在旧的满屏尺寸时起播，第一帧的缓冲比例和窗口比例就对不上，
+                // 合成器会把那块缓冲拉伸铺满当前视图 —— 用户看到的就是
+                // 「整块画面往右放大一下、然后才恢复」。等一下（最多 500ms）比事后补救便宜。
+                val (rw, rh) = fitRectSize()
+                if (rw > 0 && rh > 0 && (sv.width != rw || sv.height != rh) &&
+                    engineWaitTries < ENGINE_WAIT_MAX
+                ) {
+                    engineWaitTries++
+                    sv.postDelayed({ if (!released && g == generation) startEngine(url, g) }, ENGINE_WAIT_STEP_MS)
+                    return
+                }
+            }
 
             // LibVLC 是全局单例（见 VlcCore）：这里只拿现成的实例，不再每次 new。
             // 旧写法在这里 new LibVLC() 要 1–3 秒，且发生在主线程，直接表现为界面卡死。
@@ -535,6 +551,14 @@ class VlcFallbackPlayer(
 
     private fun applyScaleTypeAsync() {
         val mp = player ?: return
+        // 竖屏「视频层 = 视频矩形」模式（fitAspect）：窗口比例与视频一致，best-fit
+        // 既是唯一正确解、也正好是 libvlc 的默认值 —— 这一档不需要任何缩放指令。
+        //
+        // 反过来，1.86 的实测是：下发之后 libvlc 会按新的 scale 重新算一遍视口，
+        // 而这次重排既不重建 surface、也不回调 onRestarting，只是在 vout 内部把画面
+        // 放大一下再缩回来 —— 用户看到的就是「整块画面往右放大一瞬间，然后又恢复」。
+        // 既然默认值已经对，这里就彻底不发，把那一下抖动从源头去掉。
+        if (fitAspect > 0f) return
         val scale = currentScaleType()
         // 关键：不在主线程同步调用。vout 正在重建时这一步会阻塞，
         // 一旦卡在主线程就是「画面还在动、返回键按不动」。
@@ -543,6 +567,8 @@ class VlcFallbackPlayer(
 
     /** 当前决策对应的 VLC 画面缩放方式（纯计算，不下发） */
     private fun currentScaleType(): MediaPlayer.ScaleType = when {
+        // 竖屏「视频层 = 视频矩形」：窗口比例已与视频一致，best-fit 即满铺
+        fitAspect > 0f -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
         // 拉伸模式：缓冲本身就是视频比例，best-fit 就已经铺满整块缓冲了。
         // 这里绝不能再叠 FILL/FIT_SCREEN —— 那会把刚刚对齐的画幅又裁/拉一次。
         bufferW > 0 && bufferH > 0 -> MediaPlayer.ScaleType.SURFACE_BEST_FIT
