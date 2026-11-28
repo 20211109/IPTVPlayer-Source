@@ -18,6 +18,7 @@ import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.HorizontalScrollView
@@ -513,6 +514,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.tvNavFavorite).setOnClickListener(goFav)
         findViewById<Button>(R.id.tvNavSource).setOnClickListener(goSource)
         findViewById<Button>(R.id.tvNavMine).setOnClickListener(goMine)
+
+        // TV 左侧导航的胶囊底/选中态/白色焦点框画在外层 FrameLayout 上（MaterialButton 会吞掉
+        // android:background）。这里显式打开状态合并，保证按钮拿到焦点时外壳同步得到 state_focused，
+        // 不依赖样式里那条 android:addStatesFromChildren 是否被解析。
+        listOf(R.id.tvNavLive, R.id.tvNavFavorite, R.id.tvNavSource, R.id.tvNavMine).forEach { id ->
+            (findViewById<View>(id).parent as? ViewGroup)?.setAddStatesFromChildren(true)
+        }
 
         findViewById<Button>(R.id.btnMineSettings).setOnClickListener { showSettingsDialog() }
         findViewById<Button>(R.id.btnMineAbout).setOnClickListener { showAboutDialog() }

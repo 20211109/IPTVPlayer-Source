@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    弹窗主按钮的描边（MaterialButton 的 app:strokeColor，必须是 ColorStateList）。
+    遥控器焦点落上来时是一圈纯白，平时完全透明，所以静止态外观和之前一致。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="#FFFFFFFF" />
+    <item android:color="#00000000" />
+</selector>

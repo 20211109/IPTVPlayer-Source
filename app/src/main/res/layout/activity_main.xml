@@ -794,29 +794,39 @@
                 android:textColor="@color/text_primary" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/tvNavLive"
-            style="@style/NavButtonTv"
-            app:icon="@drawable/ic_nav_live"
-            android:text="@string/nav_live" />
+        <!-- 每个导航项包一层 FrameLayout：胶囊底面与白色焦点框由外壳绘制，
+             因为 MaterialButton 会接管 android:background，写在按钮上不生效。 -->
+        <FrameLayout style="@style/NavCapsuleWrap">
+            <Button
+                android:id="@+id/tvNavLive"
+                style="@style/NavButtonTv"
+                app:icon="@drawable/ic_nav_live"
+                android:text="@string/nav_live" />
+        </FrameLayout>
 
-        <Button
-            android:id="@+id/tvNavFavorite"
-            style="@style/NavButtonTv"
-            app:icon="@drawable/ic_nav_favorite"
-            android:text="@string/nav_favorite" />
+        <FrameLayout style="@style/NavCapsuleWrap">
+            <Button
+                android:id="@+id/tvNavFavorite"
+                style="@style/NavButtonTv"
+                app:icon="@drawable/ic_nav_favorite"
+                android:text="@string/nav_favorite" />
+        </FrameLayout>
 
-        <Button
-            android:id="@+id/tvNavSource"
-            style="@style/NavButtonTv"
-            app:icon="@drawable/ic_nav_source"
-            android:text="@string/btn_config" />
+        <FrameLayout style="@style/NavCapsuleWrap">
+            <Button
+                android:id="@+id/tvNavSource"
+                style="@style/NavButtonTv"
+                app:icon="@drawable/ic_nav_source"
+                android:text="@string/btn_config" />
+        </FrameLayout>
 
-        <Button
-            android:id="@+id/tvNavMine"
-            style="@style/NavButtonTv"
-            app:icon="@drawable/ic_nav_mine"
-            android:text="@string/nav_mine" />
+        <FrameLayout style="@style/NavCapsuleWrap">
+            <Button
+                android:id="@+id/tvNavMine"
+                style="@style/NavButtonTv"
+                app:icon="@drawable/ic_nav_mine"
+                android:text="@string/nav_mine" />
+        </FrameLayout>
     </LinearLayout>
 
     <!-- ============ TV 底部状态栏：设计图「焦点 CCTV2 … · 7条线路」+ 遥控器按键提示 ============ -->

@@ -42,15 +42,21 @@
         <item name="android:textSize">15sp</item>
     </style>
 
-    <!-- 主按钮：iOS 蓝胶囊 + 白字 -->
+    <!--
+        主按钮：iOS 蓝胶囊 + 白字。
+        注意：MaterialButton 会接管 android:background，写 @drawable/bg_brand_button 不会生效
+        （弹窗里「保存/添加/完成」会变成没有底色的文字，遥控器移过去也看不到焦点）。
+        这里改用 MaterialButton 真正吃的两个属性：backgroundTint 上色、strokeColor 画焦点框。
+    -->
     <style name="BrandButton" parent="Widget.MaterialComponents.Button">
         <item name="android:textColor">#FFFFFFFF</item>
         <item name="android:textSize">15sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:minHeight">48dp</item>
         <item name="cornerRadius">24dp</item>
-        <item name="backgroundTint">@null</item>
-        <item name="android:background">@drawable/bg_brand_button</item>
+        <item name="backgroundTint">@color/brand_button_fill</item>
+        <item name="strokeColor">@color/brand_button_stroke</item>
+        <item name="strokeWidth">2dp</item>
         <item name="android:stateListAnimator">@animator/focus_scale</item>
     </style>
 
@@ -144,11 +150,16 @@
         <item name="iconTint">@color/nav_icon_tint</item>
     </style>
 
-    <!-- TV 左侧导航：设计图同样大小的胶囊（宽高固定、圆角、焦点白描边） -->
+    <!--
+        TV 左侧导航按钮。
+        注意：这里【不能再写 android:background】—— MaterialButton 会自己画背景，
+        写在它身上的 bg_nav_capsule 根本不会被采用，结果就是胶囊形状和白色焦点框
+        全丢了，遥控器移过去只剩文字颜色变化，看上去「光标看不清」。
+        现在背景（含选中态/焦点态）统一交给外层 NavCapsuleWrap 画。
+    -->
     <style name="NavButtonTv" parent="Widget.MaterialComponents.Button.TextButton">
-        <item name="android:layout_width">@dimen/tv_nav_capsule_w</item>
-        <item name="android:layout_height">@dimen/tv_nav_capsule_h</item>
-        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
         <item name="android:textSize">@dimen/tv_nav_text</item>
         <item name="android:textColor">@color/text_primary</item>
         <item name="iconSize">20dp</item>
@@ -160,8 +171,18 @@
         <item name="android:minHeight">0dp</item>
         <item name="android:gravity">center</item>
         <item name="android:backgroundTint">@null</item>
+        <!-- 整块胶囊不做 focus_scale：放大后被父容器裁掉一圈，焦点框反而更糊 -->
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 左侧导航胶囊外壳：负责胶囊形状 + 选中态 + 白色焦点描边 -->
+    <style name="NavCapsuleWrap">
+        <item name="android:layout_width">@dimen/tv_nav_capsule_w</item>
+        <item name="android:layout_height">@dimen/tv_nav_capsule_h</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:addStatesFromChildren">true</item>
         <item name="android:background">@drawable/bg_nav_capsule</item>
-        <item name="android:stateListAnimator">@animator/focus_scale</item>
+        <item name="android:clipChildren">false</item>
     </style>
 
     <!-- 分组标签 -->

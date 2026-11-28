@@ -38,4 +38,7 @@
     <color name="divider">#12D1D1D6</color>
     <color name="border">#12D1D1D6</color>
     <color name="border_strong">#4DD1D1D6</color>
+
+    <!-- 弹窗主按钮（保存/添加/完成）的底色：沿用原来的 iOS 蓝，改成 MaterialButton 的 backgroundTint -->
+    <color name="brand_button_fill">#FF007AFF</color>
 </resources>
