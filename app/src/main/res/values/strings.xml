@@ -131,7 +131,7 @@
     <string name="nav_source">直播源</string>
     <string name="nav_mine">我的</string>
     <string name="mine_title">我的</string>
-    <string name="mine_hint">设置、关于与界面布局都在这里。切换布局后界面会重新载入，播放不受影响。</string>
+    <string name="mine_hint">设置与关于在这里；界面布局请到「设置」里切换。切换布局后界面会重新载入，播放不受影响。</string>
     <string name="layout_switch">界面布局</string>
     <string name="layout_switch_auto">自动（跟随设备）</string>
     <string name="layout_switch_phone">手机布局</string>
@@ -148,10 +148,10 @@
     <string name="favorite_removed">已取消收藏 %1$s</string>
     <string name="favorite_empty">还没有收藏频道\n在频道卡片右上角点星标即可收藏</string>
 
-    <!-- TV 端设计图：底部状态栏与遥控器按键提示 -->
+    <!-- TV 端设计图：底部状态栏与遥控器按键提示（按当前实际交互更新） -->
     <string name="tv_status_focus">焦点</string>
-    <string name="tv_hint_ok">OK 播放</string>
-    <string name="tv_hint_move">↑↓ 选择频道</string>
-    <string name="tv_hint_group">←→ 切换分类</string>
+    <string name="tv_hint_ok">OK 播放/确认</string>
+    <string name="tv_hint_move">↑↓ 上下选台</string>
+    <string name="tv_hint_group">←→ 移动焦点</string>
     <string name="tv_hint_back">返回 退出</string>
 </resources>

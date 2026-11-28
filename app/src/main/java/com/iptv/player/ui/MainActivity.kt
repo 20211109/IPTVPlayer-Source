@@ -331,7 +331,7 @@ class MainActivity : AppCompatActivity() {
         videoHost = findViewById(R.id.videoHost)
 
         // 列数随屏幕自适应；手动布局偏好优先级高于系统 uiMode
-        val columns = if (isTvUi()) 5 else 1
+        val columns = gridColumns()
         adapter = ChannelAdapter(
             onChannelClick = { openChannel(it) },
             onChannelFocus = { updateHero(it) },
@@ -392,6 +392,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSettings).setOnClickListener { showSettingsDialog() }
         btnFullscreen.setOnClickListener { toggleFullscreen() }
         btnSwitchLine.setOnClickListener { switchSourceManually() }
+        // TV 播放页用遥控左右键替代「返回 / 换源」：左键返回列表，右键切当前频道下一条线路。
+        // 手机（包括手动切到手机布局的设备）保持原按钮不变。
+        if (isTvUi()) {
+            findViewById<View>(R.id.btnBack).visibility = View.GONE
+            btnSwitchLine.visibility = View.GONE
+        }
         setupNewNavigation()
 
         // 软解内核预热：libvlc 首次加载要 1–3 秒，放在主线程就是切台时整机卡死。
@@ -470,6 +476,27 @@ class MainActivity : AppCompatActivity() {
             Configuration.UI_MODE_TYPE_TELEVISION
     )
 
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    /**
+     * 频道网格列数自适应：
+     *  - 手机/折叠屏内屏固定 1 列（列表行）；
+     *  - TV 布局按「可用宽度 / 目标卡宽」算，限制在 3–6 列。
+     *    1920×1080 的 Android TV 窗口常见是 960dp 宽，
+     *    扣掉左右边距和左侧导航后约 780dp → 5 列，正好是设计图的 5×4。
+     *    换大屏/小屏盒子时自动落到 3–6 列，不再写死 5。
+     */
+    private fun gridColumns(): Int {
+        if (!isTvUi()) return 1
+        val dm = resources.displayMetrics
+        val availableDp = (dm.widthPixels -
+            resources.getDimensionPixelSize(R.dimen.page_padding) * 2 -
+            resources.getDimensionPixelSize(R.dimen.tv_nav_width)) / dm.density
+        val targetCardDp = 156f
+        return (availableDp / targetCardDp).toInt().coerceIn(3, 6)
+    }
+
     /** 把两套导航接到同一组动作上，并按布局偏好显示对应的一套 */
     private fun setupNewNavigation() {
         val goLive = View.OnClickListener { showListTab(ListTab.LIVE) }
@@ -489,8 +516,16 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnMineSettings).setOnClickListener { showSettingsDialog() }
         findViewById<Button>(R.id.btnMineAbout).setOnClickListener { showAboutDialog() }
-        findViewById<Button>(R.id.btnMineLayout).setOnClickListener { switchLayoutMode() }
-        findViewById<TextView>(R.id.tvLayoutMode).text = uiLayoutPrefs.modeLabel
+
+        // 「我的」页两端统一：去掉大标题，布局入口收进设置弹窗（与手机端同理）。
+        // TV 端字号保持原样（20sp），只有手机端缩小到 16sp。
+        findViewById<View>(R.id.tvMineTitle).visibility = View.GONE
+        findViewById<View>(R.id.btnMineLayout).visibility = View.GONE
+        findViewById<View>(R.id.tvLayoutMode).visibility = View.GONE
+        if (!isTvUi()) {
+            findViewById<Button>(R.id.btnMineSettings).textSize = 16f
+            findViewById<Button>(R.id.btnMineAbout).textSize = 16f
+        }
 
         btnSearchClear.setOnClickListener {
             etSearch.setText("")
@@ -567,7 +602,7 @@ class MainActivity : AppCompatActivity() {
         sectionRow.visibility = if (tv) View.GONE else View.VISIBLE
         // TV：搜索框默认收起，点右上角放大镜再展开；手机：搜索框常驻
         findViewById<View>(R.id.searchBar).visibility = if (tv) View.GONE else View.VISIBLE
-        recyclerView.layoutManager = GridLayoutManager(this, if (tv) 5 else 1)
+        recyclerView.layoutManager = GridLayoutManager(this, gridColumns())
         adapter.submitList(filteredChannels, phoneLayout = !tv)
         updateNavSelection()
         updateClock()
@@ -583,9 +618,11 @@ class MainActivity : AppCompatActivity() {
             base,
             base + (if (tv) 0 else resources.getDimensionPixelSize(R.dimen.phone_nav_height)) + statusH
         )
-        // 「我的」页同样铺满根布局，必须一起让开，否则 TV 左侧导航会压住设置/关于按钮
+        // 「我的」页同样铺满根布局，必须一起让开，否则 TV 左侧导航会压住设置/关于按钮。
+        // 额外留 12dp：焦点光晕和白色描边不会被左侧导航栏盖住，文字第一个字也不会被切。
+        val mineStart = base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) + dp(12) else 0
         pageMine.setPadding(
-            base + if (tv) resources.getDimensionPixelSize(R.dimen.tv_nav_width) else 0,
+            mineStart,
             resources.getDimensionPixelSize(R.dimen.page_padding_top) +
                 if (tv) 0 else statusBarInsetTop,
             base,
@@ -612,11 +649,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateNavSelection() {
         val tab = listTab
+        val mine = pageMine.visibility == View.VISIBLE
         val pairs = listOf(
-            R.id.navLive to (tab == ListTab.LIVE),
-            R.id.navFavorite to (tab == ListTab.FAVORITE),
-            R.id.tvNavLive to (tab == ListTab.LIVE),
-            R.id.tvNavFavorite to (tab == ListTab.FAVORITE)
+            R.id.navLive to (!mine && tab == ListTab.LIVE),
+            R.id.navFavorite to (!mine && tab == ListTab.FAVORITE),
+            R.id.tvNavLive to (!mine && tab == ListTab.LIVE),
+            R.id.tvNavFavorite to (!mine && tab == ListTab.FAVORITE),
+            R.id.navMine to mine,
+            R.id.tvNavMine to mine
         )
         pairs.forEach { (id, selected) -> findViewById<Button>(id).isSelected = selected }
     }
@@ -637,20 +677,7 @@ class MainActivity : AppCompatActivity() {
         pageList.visibility = View.GONE
         pageMine.visibility = View.VISIBLE
         tvStatusBar.visibility = View.GONE   // 设计图底部状态栏属于直播频道页
-        findViewById<TextView>(R.id.tvLayoutMode).text = uiLayoutPrefs.modeLabel
-    }
-
-    /** 在自动 / 手机 / 电视之间循环切换，重建 Activity 以应用新布局 */
-    private fun switchLayoutMode() {
-        val next = when (uiLayoutPrefs.mode) {
-            UiLayoutPrefs.MODE_AUTO -> UiLayoutPrefs.MODE_PHONE
-            UiLayoutPrefs.MODE_PHONE -> UiLayoutPrefs.MODE_TV
-            else -> UiLayoutPrefs.MODE_AUTO
-        }
-        uiLayoutPrefs.mode = next
-        toast(getString(R.string.layout_switched, uiLayoutPrefs.modeLabel))
-        // 等 toast 显示出来再重建，避免界面瞬间闪一下把提示盖掉
-        uiHandler.postDelayed({ if (!isFinishing && !isDestroyed) recreate() }, 350L)
+        updateNavSelection()                  // 「我的」胶囊标记为当前页，和遥控器焦点分开显示
     }
 
     private fun toggleFavorite(channel: Channel) {
@@ -718,17 +745,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 遥控上下键换台：只在直播播放页生效，列表页完全交给系统焦点导航。
+     * 遥控上下键换台、TV 左右键换源/返回：只在直播播放页生效，列表页完全交给系统焦点导航。
      * 同时支持标准方向键(DPAD_UP/DOWN)与部分盒子的频道键(CHANNEL_UP/DOWN)。
      * 有弹窗打开时不拦截，避免抢走对话框的按键焦点。
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (pagePlayer.visibility != View.VISIBLE || sourceDialog?.isShowing == true) {
+        if (pagePlayer.visibility != View.VISIBLE ||
+            sourceDialog?.isShowing == true || pickerDialog?.isShowing == true
+        ) {
             return super.dispatchKeyEvent(event)
         }
         // 顶部信息条收起后，按任意键先把它唤出来（并重新开始计时），再照常处理这次按键。
         // 这样「按一下 → 看见返回/换源」的直觉成立，也不用专门加一个「显示菜单」键。
         if (event.action == KeyEvent.ACTION_DOWN) showOverlay()
+        // TV 播放页：左键返回列表，右键切换当前频道的下一条线路。
+        // 手机端完全不拦截方向键左右，保持原有焦点导航与按钮行为不变。
+        if (isTvUi() && (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+        ) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) closePlayer()
+                else switchSourceNext()
+            }
+            return true
+        }
         // 长按确认键呼出频道表：按下开始计时，抬起时若已弹出则把这次抬起吃掉，
         // 避免同一次长按又「点」到顶部栏按钮或播放器控制条。
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
@@ -1163,14 +1203,17 @@ class MainActivity : AppCompatActivity() {
                 textSize = resources.getDimension(R.dimen.chip_text) /
                         resources.displayMetrics.scaledDensity
                 val density = resources.displayMetrics.density
-                // 手机端标签等宽（设计图要求），TV 保持按字宽自适应
+                // 手机端标签等宽（设计图要求），TV 保持按字宽自适应；
+                // TV 胶囊按用户要求适当放大：左右 padding 16dp、间距 10dp。
                 val chipW = if (isTvUi()) LinearLayout.LayoutParams.WRAP_CONTENT
                             else resources.getDimensionPixelSize(R.dimen.chip_width)
+                val padH = if (isTvUi()) dp(16) else (10 * density + 0.5f).toInt()
+                val gapEnd = if (isTvUi()) dp(10) else (6 * density + 0.5f).toInt()
                 layoutParams = LinearLayout.LayoutParams(
                     chipW,
                     resources.getDimensionPixelSize(R.dimen.chip_height)
-                ).apply { setMargins(0, 0, (6 * density + 0.5f).toInt(), 0) }
-                setPadding((10 * density + 0.5f).toInt(), 0, (10 * density + 0.5f).toInt(), 0)
+                ).apply { setMargins(0, 0, gapEnd, 0) }
+                setPadding(padH, 0, padH, 0)
                 setOnClickListener { applyFilter(g) }
             }
             chip.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
@@ -1327,33 +1370,20 @@ class MainActivity : AppCompatActivity() {
                 timeZone = TimeZone.getTimeZone("Asia/Shanghai")
             }
             val now = result?.now
-            val next = result?.next
-            // 底部状态栏的节目信息跟随 EPG 实时刷新
-            if (now != null) {
-                val fmt = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
-                    timeZone = TimeZone.getTimeZone("Asia/Shanghai")
-                }
-                tvStatusProgram.text = "${now.title} · ${fmt.format(java.util.Date(now.start))}"
-            }
-            if (now == null && next == null) {
+            // 只展示「当前播放」信息：不显示「接下来」，避免占两行、也符合设计图
+            if (now == null) {
                 tvHeroEpg.text = getString(R.string.hero_playing)
-                tvHeroEpgNext.text = getString(R.string.hero_epg_empty)
-                tvHeroEpgNext.visibility = View.VISIBLE
+                tvHeroEpgNext.visibility = View.GONE
                 return@launch
             }
 
-            if (now != null) {
-                tvHeroEpg.text = "正在播放 · ${now.title} · ${fmt.format(java.util.Date(now.start))}–${fmt.format(java.util.Date(now.end))}"
-                if (next != null) {
-                    tvHeroEpgNext.text = "接下来 ${fmt.format(java.util.Date(next.start))} · ${next.title}"
-                    tvHeroEpgNext.visibility = View.VISIBLE
-                } else {
-                    tvHeroEpgNext.visibility = View.GONE
-                }
-            } else if (next != null) {
-                tvHeroEpg.text = "即将播放 · ${next.title} · ${fmt.format(java.util.Date(next.start))}"
-                tvHeroEpgNext.visibility = View.GONE
-            }
+            val label = "${now.title} · ${fmt.format(java.util.Date(now.start))}"
+            // 手机迷你条：拉到 EPG 后回填当前节目（updateHero 时缓存可能还是空的，只显示了分组名）
+            tvHeroSub.text = label
+            // TV 底部状态栏的节目信息跟随 EPG 实时刷新
+            tvStatusProgram.text = label
+            tvHeroEpg.text = label
+            tvHeroEpgNext.visibility = View.GONE
         }
     }
 
@@ -1384,7 +1414,13 @@ class MainActivity : AppCompatActivity() {
             repo,
             onAdd = { name, content, isUrl -> addPlaylistSource(name, content, isUrl) },
             onChanged = { rebuildChannelsFromSources() },
-            onEpgChanged = { epgManager.clearCache() },
+            onEpgChanged = {
+                // 保存新接口后立即用新接口重取：清缓存 + 重新预加载列表 + 刷新焦点迷你条，
+                // 否则用户停留在列表页时不会自动刷新，看起来像「填了没反应」
+                epgManager.clearCache()
+                preloadCardEpg()
+                focusedChannel?.let { updateHero(it) }
+            },
             // 手机/平板上用相机直接扫二维码；电视没有相机，对话框会自动隐藏该按钮
             onRequestScan = { onResult -> requestQrScan(onResult) }
         )
@@ -1483,8 +1519,9 @@ class MainActivity : AppCompatActivity() {
         repo.setLastChannelName(channel.name)
         tvPlayerTitle.text = channel.name
         updateMiniPlayButton()
-        // 只有多条线路时才显示「换线」按钮，避免单线路频道给用户无效操作
-        btnSwitchLine.visibility = if (channel.sources.size > 1) View.VISIBLE else View.GONE
+        // 只有手机布局、多条线路时才显示「换线」按钮；TV 已改用右键换源
+        btnSwitchLine.visibility =
+            if (!isTvUi() && channel.sources.size > 1) View.VISIBLE else View.GONE
         setStatus("正在连接…", R.color.yellow)
         showPlayerPage()
         // 换台先清掉上一台的黑边判断结果，等出画后按新画面重新判断
@@ -1527,21 +1564,45 @@ class MainActivity : AppCompatActivity() {
             toast("当前频道只有一条线路，没有可切换的备用源")
             return
         }
-        val total = channel.sources.size
         SourcePickerDialog(this, channel, pm.playingSourceIndex) { index ->
-            // 兜底内核接管期间换源：先交还控制权，让 Exo 重新起播新线路。
-            // 注意必须等用户真的选了某条线路再释放 VLC —— 放在弹窗之前会把
-            // 「打开换源弹窗后又取消」变成黑屏：VLC 已停、Exo 也还停着。
-            if (fallbackPlayer != null) {
-                releaseVlcFallback()
-                playerViewRef?.visibility = View.VISIBLE
-                pm.setSuspended(false)
-            }
-            if (pm.switchToSource(index)) {
-                currentLineLabel = "线路 ${index + 1}/$total"
-                setStatus("$currentLineLabel · 连接中…", R.color.yellow)
-            }
+            applyManualSource(index)
         }.show()
+    }
+
+    /** 真正切到用户指定的线路：换源弹窗与 TV 右键共用同一套交还内核/状态更新逻辑 */
+    private fun applyManualSource(index: Int) {
+        val pm = playerManager ?: return
+        val channel = currentChannel ?: return
+        val total = channel.sources.size
+        if (index !in channel.sources.indices) return
+        // 选中的就是当前线路时什么都别做：VLC 交还 Exo 后如果 switchToSource 因
+        // 「同一下标」直接返回 false，会留下一个已停的 Exo，画面变黑。
+        if (index == pm.playingSourceIndex) return
+        // 兜底内核接管期间换源：先交还控制权，让 Exo 重新起播新线路。
+        // 注意必须等用户真的选了某条线路再释放 VLC —— 放在弹窗之前会把
+        // 「打开换源弹窗后又取消」变成黑屏：VLC 已停、Exo 也还停着。
+        if (fallbackPlayer != null) {
+            releaseVlcFallback()
+            playerViewRef?.visibility = View.VISIBLE
+            pm.setSuspended(false)
+        }
+        if (pm.switchToSource(index)) {
+            currentLineLabel = "线路 ${index + 1}/$total"
+            setStatus("$currentLineLabel · 连接中…", R.color.yellow)
+        }
+    }
+
+    /** TV 播放页右键：顺序切到当前频道的下一条线路，最后一条之后回到第一条 */
+    private fun switchSourceNext() {
+        val pm = playerManager ?: return
+        val channel = currentChannel ?: return
+        val total = channel.sources.size
+        if (total <= 1) {
+            toast("当前频道只有一条线路，没有可切换的备用源")
+            return
+        }
+        val next = (pm.playingSourceIndex + 1).coerceAtLeast(0) % total
+        applyManualSource(next)
     }
 
     /** 仅手机进入横屏；平板/TV 保持原方向 */
@@ -2138,6 +2199,14 @@ class MainActivity : AppCompatActivity() {
                     applyAspectCrop(silent = true, force = true)
                 }
             }, 600L)
+        } else {
+            // 列表页：屏宽变了就按新宽度重算 TV 列数（3–6 列），手机重算行高兜底
+            uiHandler.post {
+                if (!isFinishing && !isDestroyed) {
+                    applyLayoutMode()
+                    ensureThreeRowsVisible()
+                }
+            }
         }
     }
 
@@ -2821,6 +2890,16 @@ class MainActivity : AppCompatActivity() {
         val spSourceRefresh = view.findViewById<android.widget.Spinner>(R.id.spSourceRefresh)
         val vRefreshCount = view.findViewById<TextView>(R.id.vRefreshCount)
         val vRefreshResult = view.findViewById<TextView>(R.id.vRefreshResult)
+        val rowLayoutMode = view.findViewById<View>(R.id.layoutModeRow)
+        val spLayoutMode = view.findViewById<android.widget.Spinner>(R.id.spLayoutMode)
+        // 界面布局入口：手机与 TV 都收进设置弹窗，两端共用同一个下拉
+        rowLayoutMode.visibility = View.VISIBLE
+        val layoutModeValues = arrayOf(
+            UiLayoutPrefs.MODE_AUTO, UiLayoutPrefs.MODE_PHONE, UiLayoutPrefs.MODE_TV
+        )
+        spLayoutMode.setSelection(
+            layoutModeValues.indexOf(uiLayoutPrefs.mode).coerceAtLeast(0)
+        )
         val zoomValues = resources.getStringArray(R.array.zoom_mode_values)
         val decoderValues = resources.getStringArray(R.array.decoder_values)
         val renderValues = resources.getStringArray(R.array.render_values)
@@ -2873,6 +2952,7 @@ class MainActivity : AppCompatActivity() {
                 val oldAutoCrop = playSettings.autoCrop
                 val oldCropStrength = playSettings.autoCropStrength
                 val oldRefreshMin = playSettings.sourceRefreshMin
+                val oldLayoutMode = uiLayoutPrefs.mode
                 // 这一组只影响「播放引擎怎么建」与「卡顿检测策略」，
                 // 全部在 PlayerManager / StallDetector 构造时读取，改完必须重建才生效
                 val oldEngine = listOf(
@@ -2966,6 +3046,18 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         toast("参数已保存")
                     }
+                }
+
+                // 界面布局：从设置弹窗的下拉切换（手机 / TV 通用）。变化才重建，避免无谓闪一下。
+                val newLayoutMode = layoutModeValues[
+                    spLayoutMode.selectedItemPosition.coerceIn(0, layoutModeValues.size - 1)
+                ]
+                if (newLayoutMode != oldLayoutMode) {
+                    uiLayoutPrefs.mode = newLayoutMode
+                    toast(getString(R.string.layout_switched, uiLayoutPrefs.modeLabel))
+                    uiHandler.postDelayed({
+                        if (!isFinishing && !isDestroyed) recreate()
+                    }, 350L)
                 }
             }
             .setNeutralButton("恢复默认") { _, _ ->

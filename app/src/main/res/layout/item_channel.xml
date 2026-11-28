@@ -2,7 +2,7 @@
 <!--
     TV 大屏频道卡（设计图：大屏直播频道布局）
     横向排版：左侧彩色台标方块 + 右侧频道名 / 当前节目，单屏 5×4。
-    焦点态描边由 bg_channel_card 给出（3px 白框），配合 focus_scale 放大 4%。
+    焦点态描边由 bg_channel_card 给出（3dp 白框），配合 focus_scale 放大到 1.10。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"

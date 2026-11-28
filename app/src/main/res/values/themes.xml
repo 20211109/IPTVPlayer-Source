@@ -111,7 +111,9 @@
         <item name="android:paddingEnd">18dp</item>
         <item name="android:backgroundTint">@null</item>
         <item name="android:background">@drawable/bg_setting_focus</item>
-        <item name="android:stateListAnimator">@animator/focus_scale</item>
+        <!-- 整行按钮不能用 focus_scale：1.08 倍会把文字往左推到左侧导航栏下面，
+             TV 上看起来就是「设置」第一个字被切掉。焦点反馈交给 bg_setting_focus 的白色描边。 -->
+        <item name="android:stateListAnimator">@null</item>
     </style>
 
     <!-- 底部/侧边导航按钮：选中态由 java 代码换 background -->

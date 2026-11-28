@@ -16,13 +16,13 @@
     <dimen name="card_logo_size">38dp</dimen>
     <dimen name="card_padding">6dp</dimen>
     <dimen name="card_padding_h">8dp</dimen>
-    <dimen name="card_name">16sp</dimen>
+    <dimen name="card_name">17sp</dimen>
     <dimen name="card_name_min">11sp</dimen>
     <dimen name="card_name_gap">5dp</dimen>
     <dimen name="card_badge">10sp</dimen>
-    <dimen name="card_meta">12sp</dimen>
-    <dimen name="chip_height">36dp</dimen>
-    <dimen name="chip_text">14sp</dimen>
+    <dimen name="card_meta">13sp</dimen>
+    <dimen name="chip_height">42dp</dimen>
+    <dimen name="chip_text">16sp</dimen>
     <dimen name="card_radius">12dp</dimen>
     <dimen name="stats_text">14sp</dimen>
     <dimen name="epg_next_text">12sp</dimen>
@@ -49,15 +49,15 @@
     <dimen name="tab_gap">8dp</dimen>
     <dimen name="tabs_margin_top">12dp</dimen>
 
-    <!-- TV 布局（平板手动切 TV 时生效） -->
-    <dimen name="tv_header_title">20sp</dimen>
-    <dimen name="tv_header_sub">12sp</dimen>
-    <dimen name="tv_search_icon">28dp</dimen>
-    <dimen name="tv_nav_text">16sp</dimen>
-    <dimen name="tv_nav_width">120dp</dimen>
-    <dimen name="tv_nav_capsule_w">104dp</dimen>
-    <dimen name="tv_nav_capsule_h">48dp</dimen>
-    <dimen name="tv_status_height">48dp</dimen>
+    <!-- TV 布局（平板手动切 TV 时生效）：与 values-television 保持一致 -->
+    <dimen name="tv_header_title">22sp</dimen>
+    <dimen name="tv_header_sub">13sp</dimen>
+    <dimen name="tv_search_icon">32dp</dimen>
+    <dimen name="tv_nav_text">17sp</dimen>
+    <dimen name="tv_nav_width">132dp</dimen>
+    <dimen name="tv_nav_capsule_w">116dp</dimen>
+    <dimen name="tv_nav_capsule_h">54dp</dimen>
+    <dimen name="tv_status_height">52dp</dimen>
     <dimen name="tv_status_pad">24dp</dimen>
-    <dimen name="tv_status_text">12sp</dimen>
+    <dimen name="tv_status_text">13sp</dimen>
 </resources>

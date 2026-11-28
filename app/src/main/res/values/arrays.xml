@@ -54,4 +54,12 @@
         <item>每 30 分钟</item>
         <item>每 60 分钟</item>
     </string-array>
+
+    <!-- 界面布局档位：0=自动 / 1=手机 / 2=电视，顺序与 UiLayoutPrefs 的 MODE_* 一致。
+         代码用 Spinner 位置直接映射 MODE_AUTO / MODE_PHONE / MODE_TV。 -->
+    <string-array name="layout_mode_labels">
+        <item>@string/layout_switch_auto</item>
+        <item>@string/layout_switch_phone</item>
+        <item>@string/layout_switch_tv</item>
+    </string-array>
 </resources>

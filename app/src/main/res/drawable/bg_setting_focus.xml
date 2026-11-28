@@ -1,24 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    下拉框（Spinner）的焦点框。
-    Spinner 默认样式只在聚焦时保留原样，电视上遥控器移过去几乎看不出差别，
-    用户会以为「没有光标、选不动」。这里套一层容器（addStatesFromChildren），
-    聚焦时给出蓝色描边 + 淡蓝底，和数值胶囊的视觉反馈保持同一套语言。
-    未聚焦态用同样宽度的透明描边，避免状态切换时布局跳动。
+    设置弹窗 Spinner / 「我的」页整行入口的焦点框。
+
+    电视上「光标在哪」必须一眼看到：聚焦时外圈一层半透明白光晕，
+    内圈 3dp 纯白描边 + 深灰底；未聚焦时完全透明（不占视觉重量）。
+    选中态（isSelected）和聚焦态是两回事，这里只认 focused，
+    避免侧边栏「当前页」和「遥控器光标」都亮白框、用户分不清。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
-        <shape android:shape="rectangle">
-            <solid android:color="#1AE84643" />
-            <corners android:radius="8dp" />
-            <stroke android:width="2dp" android:color="@color/primary" />
-        </shape>
+        <layer-list>
+            <!-- 外发光 -->
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#59FFFFFF" />
+                    <corners android:radius="12dp" />
+                </shape>
+            </item>
+            <!-- 主体：内缩 2dp，白描边 3dp -->
+            <item android:bottom="2dp" android:left="2dp" android:right="2dp" android:top="2dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="#FF2C2C2E" />
+                    <corners android:radius="10dp" />
+                    <stroke android:color="#FFFFFFFF" android:width="3dp" />
+                </shape>
+            </item>
+        </layer-list>
     </item>
     <item>
         <shape android:shape="rectangle">
             <solid android:color="@android:color/transparent" />
-            <corners android:radius="8dp" />
-            <stroke android:width="2dp" android:color="@android:color/transparent" />
+            <corners android:radius="10dp" />
+            <stroke android:color="@android:color/transparent" android:width="3dp" />
         </shape>
     </item>
 </selector>

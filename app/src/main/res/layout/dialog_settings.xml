@@ -330,6 +330,27 @@
             android:textSize="11sp"
             android:textColor="@color/text_secondary" />
 
+        <!-- 界面布局：两端「我的」页入口都移到这里，带下箭头选择（手机 / TV 通用） -->
+        <LinearLayout
+            android:id="@+id/layoutModeRow"
+            style="@style/SettingRow">
+
+            <TextView style="@style/SettingLabel" android:text="@string/layout_switch" />
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="2dp"
+                android:addStatesFromChildren="true"
+                android:background="@drawable/bg_setting_focus">
+
+                <Spinner
+                    android:id="@+id/spLayoutMode"
+                    android:layout_width="170dp"
+                    android:layout_height="wrap_content"
+                    android:entries="@array/layout_mode_labels" />
+            </FrameLayout>
+        </LinearLayout>
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
