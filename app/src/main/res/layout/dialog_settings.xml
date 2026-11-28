@@ -330,10 +330,30 @@
             android:textSize="11sp"
             android:textColor="@color/text_secondary" />
 
-        <!-- 界面布局：两端「我的」页入口都移到这里，带下箭头选择（手机 / TV 通用） -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="提示：弱网卡顿优先把「最大缓冲」调到 20–30 秒，越小越跟手、越大越抗抖。点「保存」后会立刻用新参数重新加载当前频道（画面会重连一次），不需要重启应用。"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary" />
+
+        <!--
+            界面布局放在弹窗最后一行。
+            上面的提示语是针对「最大缓冲 / 订阅源刷新」参数的说明，若把本行夹在它上面，
+            会被误读成「界面布局」的注释，所以固定排在所有说明文字之后。
+        -->
+        <!-- 分隔线：把「界面布局」和上面那两段参数说明彻底断开，避免再被当成注释 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:background="@color/divider" />
+
         <LinearLayout
             android:id="@+id/layoutModeRow"
-            style="@style/SettingRow">
+            style="@style/SettingRow"
+            android:layout_marginTop="12dp">
 
             <TextView style="@style/SettingLabel" android:text="@string/layout_switch" />
             <FrameLayout
@@ -343,20 +363,15 @@
                 android:addStatesFromChildren="true"
                 android:background="@drawable/bg_setting_focus">
 
+                <!-- wrap_content + minWidth：按条目里最长的「自动（跟随设备）」自适应，
+                     避免固定 170dp 在大字号下把文字截成「自动（跟随设…」 -->
                 <Spinner
                     android:id="@+id/spLayoutMode"
-                    android:layout_width="170dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:minWidth="150dp"
                     android:entries="@array/layout_mode_labels" />
             </FrameLayout>
         </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="提示：弱网卡顿优先把「最大缓冲」调到 20–30 秒，越小越跟手、越大越抗抖。点「保存」后会立刻用新参数重新加载当前频道（画面会重连一次），不需要重启应用。"
-            android:textSize="12sp"
-            android:textColor="@color/text_secondary" />
     </LinearLayout>
 </ScrollView>

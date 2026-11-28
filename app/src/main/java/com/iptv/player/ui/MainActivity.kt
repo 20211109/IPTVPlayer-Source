@@ -520,6 +520,8 @@ class MainActivity : AppCompatActivity() {
         // 「我的」页两端统一：去掉大标题，布局入口收进设置弹窗（与手机端同理）。
         // TV 端字号保持原样（20sp），只有手机端缩小到 16sp。
         findViewById<View>(R.id.tvMineTitle).visibility = View.GONE
+        // 注意要隐藏外层包装（画胶囊底板的那层），只隐藏按钮本身会留下一个空的胶囊框
+        findViewById<View>(R.id.rowMineLayout).visibility = View.GONE
         findViewById<View>(R.id.btnMineLayout).visibility = View.GONE
         findViewById<View>(R.id.tvLayoutMode).visibility = View.GONE
         if (!isTvUi()) {
@@ -595,8 +597,10 @@ class MainActivity : AppCompatActivity() {
         // 手机的 hero 焦点卡、搜索框完全不动。
         findViewById<View>(R.id.tvPageTitle).visibility = if (tv) View.GONE else View.VISIBLE
         headerRow.visibility = if (tv) View.VISIBLE else View.GONE
-        tvStatusBar.visibility = if (tv && pageList.visibility == View.VISIBLE &&
-            pageMine.visibility != View.VISIBLE) View.VISIBLE else View.GONE
+        // 底部按键提示在直播域内常驻：频道列表页、播放页都要有（播放页提示的是左右键换源/返回），
+        // 只有「我的」页没有，所以这里只排除「我的」页。
+        tvStatusBar.visibility = if (tv && pageMine.visibility != View.VISIBLE) View.VISIBLE else View.GONE
+        updateKeyHints()   // 播放页/列表页的按键提示文案不同，切页后必须重设
         heroCard.visibility = if (tv) View.GONE else View.VISIBLE
         heroDivider.visibility = if (tv) View.GONE else View.VISIBLE
         sectionRow.visibility = if (tv) View.GONE else View.VISIBLE
@@ -659,6 +663,24 @@ class MainActivity : AppCompatActivity() {
             R.id.tvNavMine to mine
         )
         pairs.forEach { (id, selected) -> findViewById<Button>(id).isSelected = selected }
+    }
+
+    /**
+     * TV 底部按键提示随页面切换。
+     * 列表页与播放页的按键语义完全不同：列表页左右键是「移焦点」，
+     * 播放页左右键是「左键返回、右键换源」——不分开写就会像现在这样误导用户。
+     */
+    private fun updateKeyHints() {
+        if (!isTvUi()) return
+        val playing = pagePlayer.visibility == View.VISIBLE
+        findViewById<TextView>(R.id.tvHintOk).text =
+            getString(if (playing) R.string.tv_hint_ok_playing else R.string.tv_hint_ok)
+        findViewById<TextView>(R.id.tvHintMove).text =
+            getString(if (playing) R.string.tv_hint_move_playing else R.string.tv_hint_move)
+        findViewById<TextView>(R.id.tvHintLr).text =
+            getString(if (playing) R.string.tv_hint_lr_playing else R.string.tv_hint_group)
+        findViewById<TextView>(R.id.tvHintBack).text =
+            getString(if (playing) R.string.tv_hint_switch_playing else R.string.tv_hint_back)
     }
 
     /** 切到直播 / 收藏页签；收藏页禁用分组筛选，只按收藏 + 搜索过滤 */
@@ -1518,6 +1540,11 @@ class MainActivity : AppCompatActivity() {
         currentChannel = channel
         repo.setLastChannelName(channel.name)
         tvPlayerTitle.text = channel.name
+        // 底部状态栏在播放页也可见，左侧信息要换成「正在播的频道」，
+        // 否则会一直停在列表里最后一次聚焦的那个频道上。
+        tvStatusFocus.text = channel.name
+        tvStatusProgram.text = cachedProgram(channel)
+        tvStatusLines.text = "${channel.sources.size} ${getString(R.string.source_count)}"
         updateMiniPlayButton()
         // 只有手机布局、多条线路时才显示「换线」按钮；TV 已改用右键换源
         btnSwitchLine.visibility =
@@ -2761,6 +2788,8 @@ class MainActivity : AppCompatActivity() {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
         hideSystemUi()
+        // 底部按键提示切到「播放页」语义：← 返回 / → 换源 / 长按OK 选台
+        updateKeyHints()
         // 每次进播放页都从「看得见」开始，几秒后再淡出
         showOverlay()
     }

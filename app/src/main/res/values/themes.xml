@@ -96,7 +96,7 @@
         <item name="android:stateListAnimator">@animator/focus_scale</item>
     </style>
 
-    <!-- 我的页整行入口：无边框文字按钮，遥控器焦点由 bg_setting_focus 给出 -->
+    <!-- 我的页整行入口：只负责文字，底板与遥控器焦点框由外层 FrameLayout 的 bg_mine_row 画 -->
     <style name="MineRowButton" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
@@ -107,12 +107,15 @@
         <item name="android:includeFontPadding">false</item>
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textSize">20sp</item>
-        <item name="android:paddingStart">18dp</item>
-        <item name="android:paddingEnd">18dp</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
         <item name="android:backgroundTint">@null</item>
-        <item name="android:background">@drawable/bg_setting_focus</item>
+        <!-- MaterialButton 会接管 android:background 自己画形状，写在按钮上的焦点
+             选择器不生效（TV 上光标移过去完全看不见）。这里保持全透明，把描边交给
+             外层的 bg_mine_row 画。 -->
+        <item name="android:background">@android:color/transparent</item>
         <!-- 整行按钮不能用 focus_scale：1.08 倍会把文字往左推到左侧导航栏下面，
-             TV 上看起来就是「设置」第一个字被切掉。焦点反馈交给 bg_setting_focus 的白色描边。 -->
+             TV 上看起来就是「设置」第一个字被切掉。焦点反馈交给白描边。 -->
         <item name="android:stateListAnimator">@null</item>
     </style>
 

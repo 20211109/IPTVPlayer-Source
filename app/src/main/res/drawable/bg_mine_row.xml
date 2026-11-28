@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    「我的」页整行入口（设置 / 关于 / 界面布局）的底板与焦点框。
+
+    为什么画在【外层 FrameLayout】而不是 Button 自己身上：
+    「我的」页用的是 Material 的 TextButton（MaterialButton），它会接管
+    android:background 自己画形状，写在 Button 上的选择器不会被采用——
+    表现就是电视上遥控器移到「设置 / 关于」完全看不出光标在哪。
+    改成外层容器 addStatesFromChildren=true + 本 drawable 后，子按钮获得焦点时
+    容器会同步拿到 focused 状态，白描边就一定画得出来。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 遥控器光标：内圈 3dp 纯白描边 + 外圈半透明白光晕 -->
+    <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#59FFFFFF" />
+                    <corners android:radius="12dp" />
+                </shape>
+            </item>
+            <item
+                android:bottom="2dp"
+                android:left="2dp"
+                android:right="2dp"
+                android:top="2dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="#FF2C2C2E" />
+                    <corners android:radius="10dp" />
+                    <stroke
+                        android:width="3dp"
+                        android:color="#FFFFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+
+    <!-- 触屏按下：亮一点的白边，给手指反馈 -->
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#26FFFFFF" />
+            <corners android:radius="10dp" />
+            <stroke
+                android:width="2dp"
+                android:color="#B3FFFFFF" />
+        </shape>
+    </item>
+
+    <!-- 静止态：极淡的填充 + 发丝描边，电视上也看得出这是一行可点按钮 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#14FFFFFF" />
+            <corners android:radius="10dp" />
+            <stroke
+                android:width="1dp"
+                android:color="#26FFFFFF" />
+        </shape>
+    </item>
+</selector>

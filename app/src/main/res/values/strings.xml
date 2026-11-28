@@ -154,4 +154,10 @@
     <string name="tv_hint_move">↑↓ 上下选台</string>
     <string name="tv_hint_group">←→ 移动焦点</string>
     <string name="tv_hint_back">返回 退出</string>
+
+    <!-- 播放页专用提示：播放页的按键语义和列表页完全不同（左右键是返回/换源，不是移焦点） -->
+    <string name="tv_hint_ok_playing">OK 暂停 · 长按选台</string>
+    <string name="tv_hint_move_playing">↑↓ 换台</string>
+    <string name="tv_hint_lr_playing">← 返回</string>
+    <string name="tv_hint_switch_playing">→ 换源</string>
 </resources>

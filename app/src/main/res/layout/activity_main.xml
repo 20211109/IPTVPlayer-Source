@@ -637,27 +637,58 @@
             android:textColor="@color/text_primary"
             android:layout_marginBottom="@dimen/section_gap" />
 
-        <Button
-            android:id="@+id/btnMineSettings"
-            style="@style/MineRowButton"
-            android:text="@string/settings" />
+        <!--
+            三个入口都用「外层 FrameLayout 画底板/焦点框 + 内层 Button 只负责文字」。
+            MaterialButton 会接管 android:background，焦点描边写在按钮上不会生效，
+            TV 上就会出现「遥控器移过去什么都看不见」。addStatesFromChildren 让容器
+            同步子按钮的 focused 状态，bg_mine_row 才能画出白描边。
+        -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:addStatesFromChildren="true"
+            android:background="@drawable/bg_mine_row">
 
-        <Button
-            android:id="@+id/btnMineAbout"
-            style="@style/MineRowButton"
-            android:text="@string/about_entry" />
+            <Button
+                android:id="@+id/btnMineSettings"
+                style="@style/MineRowButton"
+                android:text="@string/settings" />
+        </FrameLayout>
 
-        <Button
-            android:id="@+id/btnMineLayout"
-            style="@style/MineRowButton"
-            android:text="@string/layout_switch" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:addStatesFromChildren="true"
+            android:background="@drawable/bg_mine_row">
+
+            <Button
+                android:id="@+id/btnMineAbout"
+                style="@style/MineRowButton"
+                android:text="@string/about_entry" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/rowMineLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:addStatesFromChildren="true"
+            android:background="@drawable/bg_mine_row">
+
+            <Button
+                android:id="@+id/btnMineLayout"
+                style="@style/MineRowButton"
+                android:text="@string/layout_switch" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/tvLayoutMode"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:layout_marginTop="-4dp"
+            android:layout_marginTop="6dp"
             android:layout_marginBottom="@dimen/section_gap"
             android:text=""
             android:textSize="13sp"
@@ -667,6 +698,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:layout_marginEnd="24dp"
+            android:lineSpacingExtra="3dp"
             android:text="@string/mine_hint"
             android:textSize="12sp"
             android:textColor="@color/text_hint" />
@@ -844,7 +877,12 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
+        <!--
+            按键提示：文案随页面切换（列表页 / 播放页用途完全不同），
+            由 MainActivity.updateKeyHints() 动态设置，这里只保留初始值（列表页）。
+        -->
         <TextView
+            android:id="@+id/tvHintOk"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@drawable/bg_key_hint"
@@ -857,6 +895,7 @@
             android:textColor="@color/text_secondary" />
 
         <TextView
+            android:id="@+id/tvHintMove"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
@@ -870,6 +909,7 @@
             android:textColor="@color/text_secondary" />
 
         <TextView
+            android:id="@+id/tvHintLr"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
@@ -883,6 +923,7 @@
             android:textColor="@color/text_secondary" />
 
         <TextView
+            android:id="@+id/tvHintBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
